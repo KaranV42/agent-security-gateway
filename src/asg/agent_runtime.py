@@ -1,10 +1,12 @@
+"""Mock agent runtime — requests tools through the ASG only."""
+
 import json
 
-from asg.executor import ControlledToolExecutor
+from asg.gateway import ASGGateway
 
 
 def mock_agent_request() -> dict:
-    # Deterministic stand-in for an LLM-generated tool call.
+    """Simulate an LLM-generated tool request."""
     return json.loads("""
     {
         "tool": "read_database",
@@ -15,10 +17,11 @@ def mock_agent_request() -> dict:
     """)
 
 
-def run_agent(executor: ControlledToolExecutor) -> list[dict]:
+def run_agent(gateway: ASGGateway) -> list[dict]:
+    """Execute the agent's tool request through the gateway."""
     request = mock_agent_request()
 
-    return executor.execute_tool(
+    return gateway.execute_tool(
         request["tool"],
         request["args"],
     )
