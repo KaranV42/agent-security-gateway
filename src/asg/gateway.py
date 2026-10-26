@@ -57,8 +57,7 @@ class ASGGateway:
             self._log_audit(request_id, tool_name, resource_id, AuditPhase.EXECUTION, "FAILURE", str(e))
             raise
             
-        # 4. Strict Audit for Execution Success
-        # If this fails, we must withhold the result (fail-closed).
+        # 4. Strict Audit for Execution Success (Fail-Closed)
         try:
             self.__audit_logger.log(AuditRecord(
                 request_id=request_id,
@@ -70,6 +69,7 @@ class ASGGateway:
                 reason="Operation completed."
             ))
         except Exception as e:
+            # This explicitly wraps any logger failure in AuditPersistenceError
             raise AuditPersistenceError(f"Audit logging failed, withholding result: {e}") from e
             
         return result
@@ -87,5 +87,4 @@ class ASGGateway:
                 reason=reason
             ))
         except Exception:
-            # If audit fails during a denial or validation failure, we still raise the original error.
             pass

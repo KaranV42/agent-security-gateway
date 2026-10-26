@@ -1,14 +1,15 @@
-from dataclasses import dataclass
-from typing import Optional, FrozenSet
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional, FrozenSet, Any
 
 class ToolValidationError(ValueError):
-    """Raised when a tool request fails schema validation."""
     pass
 
 @dataclass(frozen=True)
 class ToolSchema:
-    """Defines the validation rules for a specific tool."""
-    required_args: FrozenSet[str]
+    """Defines the validation rules and metadata for a specific tool."""
+    description: str = "Execute tool operation."
+    required_args: FrozenSet[str] = field(default_factory=frozenset)
     resource_arg: Optional[str] = None
     allowed_resources: Optional[FrozenSet[str]] = None
 
@@ -24,10 +25,6 @@ class ToolRegistry:
         self._schemas[tool_name] = schema
 
     def validate(self, tool_name: str, args: dict) -> None:
-        """
-        Validates the tool name and arguments against the registry.
-        Raises ToolValidationError on any failure.
-        """
         schema = self._schemas.get(tool_name)
         if schema is None:
             raise ToolValidationError(f"Unknown tool: {tool_name}")
@@ -36,21 +33,48 @@ class ToolRegistry:
             raise ToolValidationError("Arguments must be a dictionary.")
 
         provided_args = set(args.keys())
-        
-        # Check for missing required arguments
         missing = schema.required_args - provided_args
         if missing:
             raise ToolValidationError(f"Missing required arguments: {missing}")
 
-        # Check for unexpected arguments
         unexpected = provided_args - schema.required_args
         if unexpected:
             raise ToolValidationError(f"Unexpected arguments: {unexpected}")
 
-        # Check resource allowlist if defined
         if schema.resource_arg and schema.allowed_resources is not None:
             resource_value = args.get(schema.resource_arg)
             if resource_value not in schema.allowed_resources:
                 raise ToolValidationError(
                     f"Resource '{resource_value}' is not permitted for tool '{tool_name}'."
                 )
+
+    def get_openai_tools_schema(self) -> list[dict[str, Any]]:
+        """Exports registered tools in OpenAI-compatible function calling format."""
+        tools = []
+        for name, schema in self._schemas.items():
+            properties = {}
+            if schema.resource_arg and schema.allowed_resources:
+                properties[schema.resource_arg] = {
+                    "type": "string",
+                    "description": f"Target resource for the operation.",
+                    "enum": list(schema.allowed_resources)
+                }
+            
+            # Add any other required args not covered by resource_arg
+            for arg in schema.required_args:
+                if arg != schema.resource_arg:
+                    properties[arg] = {"type": "string", "description": f"Argument: {arg}"}
+
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": schema.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": list(schema.required_args)
+                    }
+                }
+            })
+        return tools
