@@ -2,7 +2,8 @@ import pytest
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
 from asg.gateway import ASGGateway
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine, PolicyRule
+from asg.models import Effect
 from asg.registry import ToolRegistry, ToolSchema, ToolValidationError
 from asg.audit import AuditLogger, AuditRecord
 
@@ -32,7 +33,9 @@ def gateway():
     
     # Provide a policy evaluator. 
     # Phase 2/3 tests use "user_1" to ensure authorization passes for routing tests.
-    policy = PolicyEvaluator()
+    policy = DeclarativePolicyEngine()
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Test allow"))
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Test allow"))
     
     yield ASGGateway(
         executor=executor, 
@@ -76,7 +79,9 @@ def test_gateway_blocks_execution_on_validation_failure():
     )
     
     # Phase 4 requires identity and policy context.
-    policy = PolicyEvaluator()
+    policy = DeclarativePolicyEngine()
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Test allow"))
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Test allow"))
     
     # Phase 5 requires an audit logger.
     audit_logger = _DummyAuditLogger()

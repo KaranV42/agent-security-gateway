@@ -1,7 +1,7 @@
 import uuid
 from asg.executor import ControlledToolExecutor
 from asg.registry import ToolRegistry, ToolValidationError
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine
 from asg.models import AuthorizationRequest, Effect
 from asg.audit import AuditLogger, AuditRecord, AuditPhase, AuditPersistenceError
 
@@ -17,7 +17,7 @@ class ASGGateway:
         executor: ControlledToolExecutor,
         registry: ToolRegistry,
         principal_id: str,
-        policy: PolicyEvaluator,
+        policy: DeclarativePolicyEngine,
         audit_logger: AuditLogger,
     ) -> None:
         self.__executor = executor
@@ -69,7 +69,6 @@ class ASGGateway:
                 reason="Operation completed."
             ))
         except Exception as e:
-            # This explicitly wraps any logger failure in AuditPersistenceError
             raise AuditPersistenceError(f"Audit logging failed, withholding result: {e}") from e
             
         return result

@@ -7,7 +7,7 @@ from asg.gateway import ASGGateway, AuthorizationError
 from asg.registry import ToolRegistry, ToolValidationError
 from asg.audit import AuditPersistenceError, AuditLogger
 from asg.executor import ControlledToolExecutor
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine
 from asg.auth import get_current_principal  # <-- Updated import
 
 class ToolCallRequest(BaseModel):
@@ -21,7 +21,7 @@ class ToolCallRequest(BaseModel):
 def create_app(
     executor: ControlledToolExecutor,
     registry: ToolRegistry,
-    policy: PolicyEvaluator,
+    policy: DeclarativePolicyEngine,
     audit_logger: AuditLogger
 ) -> FastAPI:  # <-- jwt_secret_key removed
     app = FastAPI(title="Agent Security Gateway API", version="2.0.0")

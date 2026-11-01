@@ -11,6 +11,9 @@ from asg.policy import PolicyEvaluator
 from asg.audit_store import PersistentAuditLogger
 from asg.idp import idp
 
+from asg.policy import DeclarativePolicyEngine, PolicyRule
+from asg.models import Effect
+
 db_connection = create_mock_database()
 executor = ControlledToolExecutor(db_connection)
 
@@ -25,9 +28,21 @@ registry.register(
     )
 )
 
-policy = PolicyEvaluator()
 audit_logger = PersistentAuditLogger(db_path="audit.db")
+policy = DeclarativePolicyEngine()
 
+policy.add_rule(PolicyRule(
+    principal_id="user_1", action="read", resource_id="public_data", 
+    effect=Effect.ALLOW, reason="Admin access to public data."
+))
+policy.add_rule(PolicyRule(
+    principal_id="user_1", action="read", resource_id="restricted_data", 
+    effect=Effect.ALLOW, reason="Admin access to restricted data."
+))
+policy.add_rule(PolicyRule(
+    principal_id="user_2", action="read", resource_id="public_data", 
+    effect=Effect.ALLOW, reason="Viewer access to public data."
+))
 # Note: jwt_secret_key is no longer needed; auth.py uses the IdP's public key
 app: FastAPI = create_app(
     executor=executor,

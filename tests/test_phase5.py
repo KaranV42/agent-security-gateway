@@ -1,10 +1,12 @@
 import pytest
 from typing import Optional
+from asg import policy
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
 from asg.gateway import ASGGateway, AuthorizationError, AuditPersistenceError
 from asg.registry import ToolRegistry, ToolSchema, ToolValidationError
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine, PolicyRule
+from asg.models import Effect
 from asg.audit import AuditLogger, AuditRecord, AuditPhase
 
 class InMemoryAuditLogger(AuditLogger):
@@ -34,7 +36,11 @@ def make_gateway():
                 allowed_resources=frozenset({"public_data", "restricted_data"})
             )
         )
-        policy = PolicyEvaluator()
+        policy = DeclarativePolicyEngine()
+        policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Admin access to public data."))
+        policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Admin access to restricted data."))
+        policy.add_rule(PolicyRule(principal_id="user_2", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Viewer access to public data."))
+        # Intentionally omitting rule for user_2 + restricted_data to prove default-deny.
         return ASGGateway(executor, registry, principal_id, policy, audit_logger), connection
     return _factory
 

@@ -8,7 +8,8 @@ from asg.api import create_app
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
 from asg.registry import ToolRegistry, ToolSchema
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine, PolicyRule
+from asg.models import Effect
 from asg.audit_store import PersistentAuditLogger
 from asg.idp import idp # Import the simulated IdP
 
@@ -26,7 +27,10 @@ def client():
         description="Reads data.", required_args=frozenset({"table_name"}),
         resource_arg="table_name", allowed_resources=frozenset({"public_data", "restricted_data"})
     ))
-    policy = PolicyEvaluator()
+    policy = DeclarativePolicyEngine()
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Admin access."))
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Admin access."))
+    policy.add_rule(PolicyRule(principal_id="user_2", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Viewer access."))
     logger = PersistentAuditLogger(db_path=TEST_DB_PATH)
     
     app = create_app(executor, registry, policy, logger)

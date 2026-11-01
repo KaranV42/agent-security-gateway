@@ -7,8 +7,9 @@ from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
 from asg.gateway import ASGGateway
 from asg.registry import ToolRegistry, ToolSchema, ToolValidationError
-from asg.policy import PolicyEvaluator
+from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.audit import AuditLogger, AuditRecord
+from asg.models import Effect
 
 class _DummyAuditLogger(AuditLogger):
     def log(self, record: AuditRecord) -> None:
@@ -31,7 +32,9 @@ def gateway():
     
     # Provide a policy evaluator. 
     # Phase 2/3 tests use "user_1" to ensure authorization passes for routing tests.
-    policy = PolicyEvaluator()
+    policy = DeclarativePolicyEngine()
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Test allow"))
+    policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Test allow"))
     
     yield ASGGateway(
         executor=executor, 
