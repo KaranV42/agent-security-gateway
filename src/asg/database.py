@@ -1,30 +1,24 @@
 import sqlite3
 
 def create_mock_database() -> sqlite3.Connection:
-    # check_same_thread=False is required for FastAPI TestClient, 
-    # which runs the app in a background thread.
     connection = sqlite3.connect(":memory:", check_same_thread=False)
     connection.row_factory = sqlite3.Row
     
     connection.execute("""
-        CREATE TABLE public_data (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+        CREATE TABLE market_data (
+            symbol TEXT PRIMARY KEY,
+            price REAL NOT NULL,
+            volume INTEGER NOT NULL
         )
     """)
     connection.execute("""
-        CREATE TABLE restricted_data (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+        CREATE TABLE client_pii (
+            client_id TEXT PRIMARY KEY,
+            ssn TEXT NOT NULL,
+            net_worth REAL NOT NULL
         )
     """)
-    connection.execute(
-        "INSERT INTO public_data VALUES (?, ?)",
-        ("company_name", "Example Company"),
-    )
-    connection.execute(
-        "INSERT INTO restricted_data VALUES (?, ?)",
-        ("ceo_salary", "Confidential mock value"),
-    )
+    connection.execute("INSERT INTO market_data VALUES (?, ?, ?)", ("AAPL", 150.25, 1000000))
+    connection.execute("INSERT INTO client_pii VALUES (?, ?, ?)", ("C-9901", "123-45-6789", 2500000.00))
     connection.commit()
     return connection

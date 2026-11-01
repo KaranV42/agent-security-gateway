@@ -9,13 +9,12 @@ def mock_agent_request() -> dict:
     """Simulate an LLM-generated tool request."""
     return json.loads("""
     {
-        "tool": "read_database",
+        "tool": "read_market_data",
         "args": {
-            "table_name": "public_data"
+            "table_name": "market_data"
         }
     }
     """)
-
 
 def run_agent(gateway: ASGGateway) -> list[dict]:
     """Execute the agent's tool request through the gateway."""

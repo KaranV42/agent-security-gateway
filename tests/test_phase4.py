@@ -1,5 +1,3 @@
-from email import policy
-
 import pytest
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
@@ -8,89 +6,74 @@ from asg.registry import ToolRegistry, ToolSchema, ToolValidationError
 from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.models import Effect
 from asg.audit import AuditLogger, AuditRecord
+from asg.broker import CredentialBroker
+
+TEST_SECRET = "test-secret"
 
 class _DummyAuditLogger(AuditLogger):
-    def log(self, record: AuditRecord) -> None:
-        pass
+    def log(self, record: AuditRecord) -> None: pass
 
 @pytest.fixture
 def make_gateway():
     def _factory(principal_id: str):
         connection = create_mock_database()
-        executor = ControlledToolExecutor(connection)
+        broker = CredentialBroker(asg_service_secret=TEST_SECRET)
+        executor = ControlledToolExecutor(connection, broker)
         registry = ToolRegistry()
-        registry.register(
-            "read_database",
-            ToolSchema(
-                required_args=frozenset({"table_name"}),
-                resource_arg="table_name",
-                allowed_resources=frozenset({"public_data", "restricted_data"})
-            )
-        )
+        registry.register("read_market_data", ToolSchema(
+            required_args=frozenset({"table_name"}), resource_arg="table_name",
+            allowed_resources=frozenset({"market_data", "client_pii"})
+        ))
+        registry.register("read_client_pii", ToolSchema(
+            required_args=frozenset({"table_name"}), resource_arg="table_name",
+            allowed_resources=frozenset({"market_data", "client_pii"})
+        ))
         policy = DeclarativePolicyEngine()
-        policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Admin access to public data."))
-        policy.add_rule(PolicyRule(principal_id="user_1", action="read", resource_id="restricted_data", effect=Effect.ALLOW, reason="Admin access to restricted data."))
-        policy.add_rule(PolicyRule(principal_id="user_2", action="read", resource_id="public_data", effect=Effect.ALLOW, reason="Viewer access to public data."))
-        # Intentionally omitting rule for user_2 + restricted_data to prove default-deny.
-        audit_logger = _DummyAuditLogger()
-        return ASGGateway(executor, registry, principal_id, policy, audit_logger = _DummyAuditLogger()), connection
+        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="client_pii", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="client_portal", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
+        
+        return ASGGateway(executor, registry, principal_id, policy, _DummyAuditLogger(), broker, TEST_SECRET), connection
     return _factory
 
-def test_admin_can_read_public_data(make_gateway):
-    gateway, conn = make_gateway("user_1")
+def test_advisor_can_read_market_data(make_gateway):
+    gateway, conn = make_gateway("wealth_advisor")
     try:
-        result = gateway.execute_tool("read_database", {"table_name": "public_data"})
-        assert result[0]["key"] == "company_name"
-    finally:
-        conn.close()
+        result = gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+        assert result[0]["symbol"] == "AAPL"
+    finally: conn.close()
 
-def test_admin_can_read_restricted_data(make_gateway):
-    gateway, conn = make_gateway("user_1")
+def test_advisor_can_read_client_pii(make_gateway):
+    gateway, conn = make_gateway("wealth_advisor")
     try:
-        result = gateway.execute_tool("read_database", {"table_name": "restricted_data"})
-        assert result[0]["key"] == "ceo_salary"
-    finally:
-        conn.close()
+        result = gateway.execute_tool("read_client_pii", {"table_name": "client_pii"})
+        assert result[0]["client_id"] == "C-9901"
+    finally: conn.close()
 
-def test_viewer_can_read_public_data(make_gateway):
-    gateway, conn = make_gateway("user_2")
+def test_portal_can_read_market_data(make_gateway):
+    gateway, conn = make_gateway("client_portal")
     try:
-        result = gateway.execute_tool("read_database", {"table_name": "public_data"})
-        assert result[0]["key"] == "company_name"
-    finally:
-        conn.close()
+        result = gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+        assert result[0]["symbol"] == "AAPL"
+    finally: conn.close()
 
-def test_viewer_cannot_read_restricted_data(make_gateway):
-    gateway, conn = make_gateway("user_2")
+def test_portal_cannot_read_client_pii(make_gateway):
+    gateway, conn = make_gateway("client_portal")
     try:
-        with pytest.raises(AuthorizationError, match="access denied by default"):
-            gateway.execute_tool("read_database", {"table_name": "restricted_data"})
-    finally:
-        conn.close()
+        with pytest.raises(AuthorizationError, match="No matching policy"):
+            gateway.execute_tool("read_client_pii", {"table_name": "client_pii"})
+    finally: conn.close()
 
 def test_unknown_user_denied_by_default(make_gateway):
     gateway, conn = make_gateway("unknown_user")
     try:
-        with pytest.raises(AuthorizationError, match="access denied by default"):
-            gateway.execute_tool("read_database", {"table_name": "public_data"})
-    finally:
-        conn.close()
+        with pytest.raises(AuthorizationError, match="No matching policy"):
+            gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+    finally: conn.close()
 
 def test_agent_cannot_spoof_principal(make_gateway):
-    """
-    Proves that the agent cannot inject a principal into the tool arguments.
-    Phase 3 structural validation rejects unexpected arguments before 
-    Phase 4 authorization is even evaluated.
-    """
-    gateway, conn = make_gateway("user_2")
+    gateway, conn = make_gateway("client_portal")
     try:
         with pytest.raises(ToolValidationError, match="Unexpected arguments"):
-            gateway.execute_tool(
-                "read_database", 
-                {
-                    "table_name": "restricted_data",
-                    "principal_id": "user_1" # Spoofed payload
-                }
-            )
-    finally:
-        conn.close()
+            gateway.execute_tool("read_client_pii", {"table_name": "client_pii", "principal_id": "wealth_advisor"})
+    finally: conn.close()

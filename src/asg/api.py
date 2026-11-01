@@ -8,13 +8,11 @@ from asg.registry import ToolRegistry, ToolValidationError
 from asg.audit import AuditPersistenceError, AuditLogger
 from asg.executor import ControlledToolExecutor
 from asg.policy import DeclarativePolicyEngine
-from asg.auth import get_current_principal  # <-- Updated import
+from asg.auth import get_current_principal
+from asg.broker import CredentialBroker
 
 class ToolCallRequest(BaseModel):
-    """
-    OpenAI/LangChain compatible tool call payload.
-    Identity is strictly derived from the JWT header, not the body.
-    """
+    """OpenAI/LangChain compatible tool call payload."""
     tool_name: str
     arguments: dict[str, Any]
 
@@ -22,9 +20,11 @@ def create_app(
     executor: ControlledToolExecutor,
     registry: ToolRegistry,
     policy: DeclarativePolicyEngine,
-    audit_logger: AuditLogger
-) -> FastAPI:  # <-- jwt_secret_key removed
-    app = FastAPI(title="Agent Security Gateway API", version="2.0.0")
+    audit_logger: AuditLogger,
+    broker: CredentialBroker,
+    asg_service_secret: str
+) -> FastAPI:
+    app = FastAPI(title="Agent Security Gateway API", version="3.0.0")
 
     @app.get("/api/v1/tools")
     async def get_tools():
@@ -39,21 +39,22 @@ def create_app(
     @app.post("/api/v1/execute")
     async def execute_tool(
         req: ToolCallRequest,
-        principal_id: str = Depends(get_current_principal)  # <-- Uses global dependency
+        principal_id: str = Depends(get_current_principal)
     ):
         api_request_id = str(uuid.uuid4())
 
-        # Instantiate gateway with the verified principal from the JWT
+        # Instantiate gateway with the verified principal, broker, and service secret
         gateway = ASGGateway(
             executor=executor,
             registry=registry,
             principal_id=principal_id,
             policy=policy,
-            audit_logger=audit_logger
+            audit_logger=audit_logger,
+            broker=broker,
+            asg_service_secret=asg_service_secret
         )
 
         try:
-            # Note: gateway.execute_tool expects 'args', we map 'arguments' from the API model
             result = gateway.execute_tool(req.tool_name, req.arguments)
             return {
                 "status": "SUCCESS",
