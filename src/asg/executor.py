@@ -19,18 +19,19 @@ class ControlledToolExecutor:
             raise ExecutorInputError("Unsupported tool")
         
         # 1. Validate Service-to-Service Session
-        table_name = args.get("table_name") # <-- Fixed typo here
+        table_name = args.get("table_name")
         if not self.__broker.validate_session(session_token, table_name):
             raise ExecutorInputError("Invalid or expired session token")
 
         if not isinstance(args, dict) or set(args) != {"table_name"}:
             raise ExecutorInputError("Invalid arguments")
 
+        # 2. Map tool to actual database table
         table = self._TABLES.get(tool_name)
         if table is None:
             raise ExecutorInputError("Unsupported table")
 
-        # 2. Execute safely
+        # 3. Execute safely (parameterized queries prevent SQL injection at the DB level)
         rows = self.__connection.execute(
             f'SELECT * FROM "{table}" ORDER BY 1'
         ).fetchall()

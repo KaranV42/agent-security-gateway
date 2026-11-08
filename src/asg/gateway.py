@@ -32,13 +32,19 @@ class ASGGateway:
         request_id = str(uuid.uuid4())
         resource_id = args.get("table_name", "")
 
+        # 1. Structural Validation
         try:
             self.__registry.validate(tool_name, args)
         except ToolValidationError as e:
             self._log_audit(request_id, tool_name, resource_id, AuditPhase.AUTHORIZATION, "DENY", f"Validation failed: {e}")
             raise
 
-        auth_request = AuthorizationRequest(principal_id=self.__principal_id, action="read", resource_id=resource_id)
+        # 2. Authorization
+        auth_request = AuthorizationRequest(
+            principal_id=self.__principal_id,
+            action="read",
+            resource_id=resource_id,
+        )
         decision = self.__policy.evaluate(auth_request)
         
         self._log_audit(request_id, tool_name, resource_id, AuditPhase.AUTHORIZATION, decision.effect.value, decision.reason)
@@ -46,7 +52,7 @@ class ASGGateway:
         if decision.effect == Effect.DENY:
             raise AuthorizationError(f"Authorization failed: {decision.reason}")
             
-        # --- NEW: Secrets Brokering & Service Auth ---
+        # 3. Service-to-Service Authentication & Secrets Brokering
         if not self.__broker.authenticate_asg(self.__asg_secret):
             raise AuthorizationError("ASG failed to authenticate with Credential Broker")
         
@@ -54,29 +60,40 @@ class ASGGateway:
         if not session_token:
             raise AuthorizationError("Broker failed to issue session token")
 
+        # 4. Execution
         try:
             result = self.__executor.execute_tool(tool_name, args, session_token)
         except Exception as e:
             self._log_audit(request_id, tool_name, resource_id, AuditPhase.EXECUTION, "FAILURE", str(e))
             raise
             
+        # 5. Strict Audit for Execution Success (Fail-Closed)
         try:
             self.__audit_logger.log(AuditRecord(
-                request_id=request_id, principal_id=self.__principal_id,
-                tool_name=tool_name, resource_id=resource_id,
-                phase=AuditPhase.EXECUTION, outcome="SUCCESS", reason="Operation completed."
+                request_id=request_id,
+                principal_id=self.__principal_id,
+                tool_name=tool_name,
+                resource_id=resource_id,
+                phase=AuditPhase.EXECUTION,
+                outcome="SUCCESS",
+                reason="Operation completed."
             ))
         except Exception as e:
             raise AuditPersistenceError(f"Audit logging failed, withholding result: {e}") from e
             
         return result
 
-    def _log_audit(self, request_id, tool_name, resource_id, phase, outcome, reason):
+    def _log_audit(self, request_id: str, tool_name: str, resource_id: str, phase: AuditPhase, outcome: str, reason: str) -> None:
+        """Attempts to log an audit record. Swallows audit failures for denial paths to preserve the original exception."""
         try:
             self.__audit_logger.log(AuditRecord(
-                request_id=request_id, principal_id=self.__principal_id,
-                tool_name=tool_name, resource_id=resource_id,
-                phase=phase, outcome=outcome, reason=reason
+                request_id=request_id,
+                principal_id=self.__principal_id,
+                tool_name=tool_name,
+                resource_id=resource_id,
+                phase=phase,
+                outcome=outcome,
+                reason=reason
             ))
         except Exception:
             pass
