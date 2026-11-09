@@ -257,3 +257,28 @@ The user explicitly authorizes changing the OpenAPI and Phase 0 golden baselines
 - Do not change JWT identity issuance, SEC-01, or CFG-01 in B0/B1.5; their approval gates remain deferred.
 - Do not change endpoint paths or request/response structures under cover of domain renaming.
 - Do not change audit concurrency, denial-audit behavior, or other previously planned batches merely because the executor interface is being revised.
+
+## Strategic Pivot: Live Website Chatbot Integration
+
+The generic gateway and B1.5 executor port are now the integration foundation. This section proposes the actual live-chatbot design and implementation sequence; it does not authorize implementation. See [CHATBOT_INTEGRATION.md](./CHATBOT_INTEGRATION.md) for the trust-flow, IdP/JWKS design, constrained HTTP executor, ownership-aware policy, network/credential boundaries, decisions, and verification details.
+
+### Goals and non-goals
+
+- Authenticate the end user through a supported external IdP and separately authenticate the trusted chatbot backend.
+- Permit only registry-configured operations, with default-deny policy and server-derived principal, tenant, and ownership context.
+- Allow an HTTP executor to call only fixed, reviewed provider operations using brokered least-privilege credentials.
+- Keep the browser and LLM outside the authority boundary: neither may choose a URL, provider credential, principal, tenant, policy result, or ownership claim.
+- Do not add a generic URL-fetch operation, arbitrary SQL, broad provider connector, or live side-effecting tool without operation-specific approval.
+- Do not treat this plan as approval to configure production IdP/provider secrets, enable outbound traffic, or change the frozen HTTP API. Any required public contract change needs a separate explicit decision.
+
+### Proposed batches and gates
+
+1. **C0 — Threat model and integration contracts:** resolve identity/delegation, workload authentication, ownership source, provider scope, egress, side-effect handling, privacy, audit, and deployment decisions. Approve typed identity, authorization context, operation, grant, and error contracts before runtime work.
+2. **C1 — External IdP validation:** add configured JWKS validation with strict issuer/audience/claims, bounded cache and rotation behavior; prevent production use of the mock signer/demo-token route. Test invalid tokens, key rotation, JWKS outages, and token-header URL abuse.
+3. **C2 — Verified principal and ownership-aware policy:** provide verified subject/tenant attributes and authoritative owner-scoped data access; fail closed on missing/ambiguous ownership and avoid check/fetch races. Prove cross-user and cross-tenant denial at the backend operation.
+4. **C3 — Registry operation definitions and brokered credential grants:** bind tool IDs to immutable server-side provider operations, schemas, resource semantics, side-effect class, response allow-list, and credential audience. Scope grants to workload, operation, resource, tenant, and provider; keep secrets inaccessible to model/browser/logs.
+5. **C4 — First constrained HTTP adapter:** implement `HttpExecutor` behind `ToolExecutor` for one approved provider and a few fixed operations only. Enforce egress allow-lists, TLS, redirect restrictions, timeouts, size/schema limits, redaction, and operation-specific retry/idempotency behavior. Add SSRF and scope-binding tests before enabling traffic.
+6. **C5 — Website chatbot server integration:** connect the trusted orchestration backend; expose registry-derived schemas only; add session isolation, rate limits, result minimization, privacy controls, and user confirmation for approved side effects.
+7. **C6 — Production hardening and rollout:** validate production topology, secrets/JWKS/audit operations, adversarial cases, monitoring, feature flags, and rollback/credential revocation before live enablement.
+
+Dependencies and approval gates are detailed in the design document. C0 precedes all implementation; C1 and C2 establish the identity and ownership foundations; C3 enables narrow credentials; C4 depends on those boundaries; C5 may only expose approved tools; C6 gates production rollout. No batch implies approval for unrelated providers, tools, or public API changes.
