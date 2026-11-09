@@ -1,38 +1,71 @@
 import sqlite3
-from asg.broker import CredentialBroker
+from collections.abc import Mapping
 
-class ExecutorInputError(ValueError):
-    pass
+from asg.broker import CredentialBroker
+from asg.execution import (
+    ExecutorInputError,
+    ToolExecutionRequest,
+    ToolExecutionResult,
+)
+
 
 class ControlledToolExecutor:
-    _TABLES = {
-        "public_records": "public_records",
-        "restricted_records": "restricted_records",
+    _OPERATIONS = {
+        ("read_data", "public_records"): ("public_records", "public_records"),
+        ("read_data", "restricted_records"): ("restricted_records", "restricted_records"),
     }
 
     def __init__(self, connection: sqlite3.Connection, broker: CredentialBroker):
         self.__connection = connection
         self.__broker = broker
 
-    def execute_tool(self, tool_name: str, args: dict, session_token: str) -> list[dict]:
-        if tool_name != "read_data":
-            raise ExecutorInputError("Unsupported tool")
-        
-        # 1. Validate Service-to-Service Session
-        resource_id = args.get("resource_id")
-        if not self.__broker.validate_session(session_token, resource_id):
-            raise ExecutorInputError("Invalid or expired session token")
-
-        if not isinstance(args, dict) or set(args) != {"resource_id"}:
+    def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
+        if (
+            not isinstance(request.tool_name, str)
+            or not isinstance(request.resource_id, str)
+            or not isinstance(request.session_token, str)
+            or not isinstance(request.arguments, Mapping)
+        ):
             raise ExecutorInputError("Invalid arguments")
 
-        # 2. Resolve the requested resource through the fixed table allow-list.
-        table = self._TABLES.get(resource_id)
-        if table is None:
-            raise ExecutorInputError("Unsupported table")
+        if request.tool_name != "read_data":
+            raise ExecutorInputError("Unsupported tool")
+        binding = self._OPERATIONS.get((request.tool_name, request.resource_id))
+        if binding is None:
+            raise ExecutorInputError("Unsupported resource")
+        table, operation_resource = binding
 
-        # 3. Execute safely (parameterized queries prevent SQL injection at the DB level)
+        if (
+            set(request.arguments) != {"resource_id"}
+            or request.arguments.get("resource_id") != operation_resource
+        ):
+            raise ExecutorInputError("Invalid arguments")
+
+        if not self.__broker.validate_session(
+            request.session_token, operation_resource
+        ):
+            raise ExecutorInputError("Invalid or expired session token")
+
         rows = self.__connection.execute(
             f'SELECT * FROM "{table}" ORDER BY 1'
         ).fetchall()
-        return [dict(row) for row in rows]
+        return ToolExecutionResult(records=tuple(dict(row) for row in rows))
+
+    def execute_tool(
+        self, tool_name: str, args: dict, session_token: str
+    ) -> list[dict]:
+        if not isinstance(args, dict):
+            raise ExecutorInputError("Invalid arguments")
+        resource_id = args.get("resource_id")
+        if not isinstance(resource_id, str):
+            raise ExecutorInputError("Invalid arguments")
+
+        result = self.execute(
+            ToolExecutionRequest(
+                tool_name=tool_name,
+                resource_id=resource_id,
+                arguments=args,
+                session_token=session_token,
+            )
+        )
+        return [dict(record) for record in result.records]

@@ -25,7 +25,7 @@ The current demonstration registers one tool, `read_data`, for `public_records` 
 
 - `ToolRegistry` checks registered tool names, argument shape, required arguments, and each schema's allowed resource set (`src/asg/registry.py`).
 - The gateway derives `resource_id` from the request arguments and supplies it to the policy engine and broker (`src/asg/gateway.py`).
-- The SQLite executor currently supports `read_data` and resolves the requested resource through a fixed allow-list (`public_records` and `restricted_records`) before constructing its query (`src/asg/executor.py`). It validates the broker session against that same resource. There is no arbitrary table-name or SQL argument.
+- `ASGGateway` depends on the backend-neutral `ToolExecutor` protocol and passes a typed request/result across that boundary (`src/asg/execution.py`, `src/asg/gateway.py`). The SQLite `ControlledToolExecutor` currently supports `read_data` and resolves the `(tool_name, resource_id)` pair through a fixed operation mapping before constructing its query (`src/asg/executor.py`). It validates the broker session against the resource in that configured binding. There is no arbitrary table-name or SQL argument.
 - The mock data connection is in-memory and seeded when `create_mock_database` runs (`src/asg/database.py`). This is still a SQLite-specific executor; B0 does not introduce a backend abstraction or HTTP integration.
 
 ### Audit logger
@@ -70,5 +70,5 @@ An `analyst` request for `restricted_records` passes the generic tool/resource s
 
 - The previous demo's separate data-reading tool names became one `read_data` tool with a `resource_id` argument.
 - Demo principals are now `admin` and `analyst`; resources are `public_records` and `restricted_records`.
-- The executor's resource-to-table mapping remains a fixed SQLite allow-list. This is a domain-specific mapping change, not the backend-neutral interface planned for B1.5.
+- The executor's resource-to-table mapping remains a fixed SQLite allow-list behind the backend-neutral port. No HTTP adapter or arbitrary remote-call capability is included.
 - The HTTP endpoints and request/response structures remain unchanged. Baselines and golden outputs are regenerated only for the approved generic fixtures and operation names.

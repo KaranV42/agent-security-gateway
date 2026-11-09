@@ -2,6 +2,7 @@ import pytest
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
 from asg.gateway import ASGGateway
+from asg.execution import ToolExecutionRequest, ToolExecutionResult
 from asg.registry import ToolRegistry, ToolSchema, ToolValidationError
 from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.models import Effect
@@ -14,7 +15,7 @@ class _DummyAuditLogger(AuditLogger):
     def log(self, record: AuditRecord) -> None: pass
 
 class _FailingExecutor:
-    def execute_tool(self, tool_name: str, args: dict, token: str) -> list[dict]:
+    def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         raise RuntimeError("Security boundary violated")
 
 @pytest.fixture

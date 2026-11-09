@@ -239,6 +239,8 @@ The user explicitly authorizes changing the OpenAPI and Phase 0 golden baselines
 - **Risk:** Medium/High. Interface placement and error translation affect the central execution seam; an overly broad port can leak infrastructure details or create a generic remote-call primitive.
 - **Rollback:** Revert only the B1.5 commit, preserving B0's generic names and post-pivot baselines. Do not revert or rewrite B0 artifacts as part of rolling back the adapter abstraction.
 
+- **B1.5 implementation record:** `src/asg/execution.py` defines `ToolExecutor`, immutable typed execution requests/results, and the `ToolExecutionError` / `ExecutorInputError` contract. The gateway and app factory now accept the protocol; the SQLite executor implements it while retaining `execute_tool` as a compatibility convenience for direct existing callers. The SQLite adapter resolves `(tool_name, resource_id)` through a fixed operation map and validates the broker token against the configured operation's resource. `tests/test_executor_port.py` covers a fake in-memory implementation and rejection of a token scoped to a different configured operation. No HTTP adapter, outbound HTTP call, arbitrary URL, or raw-SQL interface was added.
+
 ### Ordering and relationship to earlier batches
 
 1. **B0 first:** the domain contract and fixtures must be generic before the executor interface is designed around them.

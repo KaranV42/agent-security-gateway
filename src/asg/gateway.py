@@ -1,5 +1,5 @@
 import uuid
-from asg.executor import ControlledToolExecutor
+from asg.execution import ToolExecutionRequest, ToolExecutor
 from asg.registry import ToolRegistry, ToolValidationError
 from asg.policy import DeclarativePolicyEngine
 from asg.models import AuthorizationRequest, Effect
@@ -12,7 +12,7 @@ class AuthorizationError(PermissionError):
 class ASGGateway:
     def __init__(
         self,
-        executor: ControlledToolExecutor,
+        executor: ToolExecutor,
         registry: ToolRegistry,
         principal_id: str,
         policy: DeclarativePolicyEngine,
@@ -62,7 +62,14 @@ class ASGGateway:
 
         # 4. Execution
         try:
-            result = self.__executor.execute_tool(tool_name, args, session_token)
+            execution_result = self.__executor.execute(
+                ToolExecutionRequest(
+                    tool_name=tool_name,
+                    resource_id=resource_id,
+                    arguments=args,
+                    session_token=session_token,
+                )
+            )
         except Exception as e:
             self._log_audit(request_id, tool_name, resource_id, AuditPhase.EXECUTION, "FAILURE", str(e))
             raise
@@ -81,7 +88,7 @@ class ASGGateway:
         except Exception as e:
             raise AuditPersistenceError(f"Audit logging failed, withholding result: {e}") from e
             
-        return result
+        return [dict(record) for record in execution_result.records]
 
     def _log_audit(self, request_id: str, tool_name: str, resource_id: str, phase: AuditPhase, outcome: str, reason: str) -> None:
         """Attempts to log an audit record. Swallows audit failures for denial paths to preserve the original exception."""

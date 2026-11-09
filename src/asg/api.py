@@ -6,7 +6,7 @@ from typing import Any
 from asg.gateway import ASGGateway, AuthorizationError
 from asg.registry import ToolRegistry, ToolValidationError
 from asg.audit import AuditPersistenceError, AuditLogger
-from asg.executor import ControlledToolExecutor
+from asg.execution import ToolExecutor
 from asg.policy import DeclarativePolicyEngine
 from asg.auth import get_current_principal
 from asg.broker import CredentialBroker
@@ -17,7 +17,7 @@ class ToolCallRequest(BaseModel):
     arguments: dict[str, Any]
 
 def create_app(
-    executor: ControlledToolExecutor,
+    executor: ToolExecutor,
     registry: ToolRegistry,
     policy: DeclarativePolicyEngine,
     audit_logger: AuditLogger,
