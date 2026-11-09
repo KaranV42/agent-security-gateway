@@ -1,0 +1,176 @@
+# Phase 3 — Refactor Plan
+
+## Planning constraints
+
+- Phase 0 is the compatibility floor: `baseline_openapi.json` and every `golden/*.json` must remain byte-identical after each approved batch. A proposed change that alters one is a finding until the user explicitly approves changing that contract/baseline.
+- The HTTP endpoints, request/response shapes, and status codes are frozen. No batch below assumes that a security fix may silently remove an endpoint or change its response/status behavior.
+- No source/test changes are authorized by this plan. Phase 4 is batch-by-batch and requires explicit approval before execution.
+- New regression assertions belong in new test files; existing assertions are not to be edited, deleted, skipped, or renamed. Tests may only receive the import/path adjustments allowed by the instructions if code is moved.
+- The first batch is limited to the executor security boundary because it is confirmed, narrowly scoped, and can preserve the current HTTP behavior for valid gateway requests.
+
+## Batch order
+
+### Batch B1 — Bind broker scope to the executor's actual table
+
+- **Intent:** Ensure an executor session scoped to one resource cannot authorize a different table selected by the tool mapping.
+- **Findings addressed:** SEC-02.
+- **Why grouped:** The token/resource check and tool-to-table selection are adjacent parts of one executor security decision. The direct probe demonstrated a sensitive-table result from a mismatched scope, so a focused negative regression belongs with the guard that prevents it.
+- **Scope:** `src/asg/executor.py`, `ControlledToolExecutor.execute_tool` only; add a new focused test module under `tests/` that exercises direct executor calls with mismatched tool, argument resource, and issued broker token. Do not modify existing tests or public HTTP handlers.
+- **Contract notes:** Preserve the HTTP API/OpenAPI contract. The normal gateway request path uses a registered matching tool/resource pair, so its status/result should remain unchanged. Reject the mismatched direct call before the SQL sink. If verification reveals any Phase 0 golden change, stop and report rather than updating the golden.
+- **Verification:** Run the new focused test and existing executor/gateway tests; run the full `pytest -q` check in Phase 4. Regenerate and compare `baseline_openapi.json` and all five Phase 0 goldens (`jwt`, `hashchain`, `broker`, `policy`, `e2e`). The e2e happy/denial response contract must remain byte-identical. Add a dedicated test proving no client PII is returned for the mismatched direct call.
+- **Risk:** Medium. The executor signature need not change, but code that intentionally used a token for one resource with another tool will now fail. The HTTP blast radius should be low because registry validation already rejects that pair.
+- **Rollback:** Revert only the B1 commit. The new negative test should be reverted with the implementation if the batch is rolled back; leave all baseline artifacts untouched.
+
+### Batch B2 — Verify persisted audit-chain links
+
+- **Intent:** Make the integrity verifier validate the persisted predecessor link as well as the recomputed digest.
+- **Findings addressed:** SEC-04; TST-03 (stored-link/mutation assertion only).
+- **Why grouped:** The verifier algorithm and its tampering regression test define one integrity contract; this does not change how records are serialized or hashed.
+- **Scope:** `src/asg/audit_store.py`, `PersistentAuditLogger.verify_integrity` only; add a new audit-store test module covering a valid persisted chain and targeted mutations, including a changed `previous_hash`. Do not change the hash payload or schema in this batch.
+- **Contract notes:** Deterministic hashes from `golden/hashchain.json` must remain unchanged. The clean-database `/api/v1/audit/verify` response shape and status must remain unchanged; only the boolean result for corrupted/inconsistent rows should differ.
+- **Verification:** Run the new tests and existing audit-related tests; compare all Phase 0 goldens and the OpenAPI snapshot. Explicitly confirm that the original five hashes are unchanged and that a valid chain remains `true`.
+- **Risk:** Low/Medium. Existing malformed or historically inconsistent databases may now report invalid where the old verifier reported valid.
+- **Rollback:** Revert the B2 commit if valid audit databases or the frozen clean-chain behavior differ; retain the new tests only if they continue to describe the intended verifier contract.
+
+### Batch B3 — Make audit append predecessor selection atomic
+
+- **Intent:** Prevent concurrent audit writers from deriving separate rows from the same chain predecessor.
+- **Findings addressed:** SEC-05; TST-03 (concurrent-append assertion).
+- **Why grouped:** Atomic predecessor selection and append are one persistence invariant; the test must exercise that exact concurrent-write guarantee.
+- **Scope:** `src/asg/audit_store.py`, `PersistentAuditLogger.log` and only the transaction/connection helpers needed for its append; add a new audit-store concurrency test. Keep serialization fields, ordering semantics, schema, and hash algorithm unchanged.
+- **Contract notes:** The serial `golden/hashchain.json` output must remain byte-identical. No HTTP changes are proposed. Use a concurrency test appropriate to the repository's SQLite deployment model; do not claim cross-process guarantees unless the implementation and test establish them.
+- **Verification:** Run the focused audit tests repeatedly enough to detect a flaky race, then the existing audit tests and full suite. Compare OpenAPI and every golden output. Verify chain integrity after concurrent appends under the guarantee explicitly chosen for this batch.
+- **Risk:** Medium/High. SQLite locking and transaction boundaries can affect contention, ordering, and failure handling; multi-process correctness may require a different design than a process-local lock.
+- **Rollback:** Revert only B3 if the concurrency guarantee is not demonstrated or if serial hash outputs change. Do not weaken the test or claim broader process guarantees to make it pass.
+
+### Batch B4 — Make denial-audit loss observable without changing denial semantics
+
+- **Intent:** Surface audit persistence failures on validation/authorization paths while continuing to deny invalid or unauthorized requests.
+- **Findings addressed:** SEC-03; OBS-01 (audit-failure observability only).
+- **Why grouped:** The helper is shared by the validation and authorization audit paths; consistent handling and focused failure-injection tests are needed to avoid changing only one denial branch.
+- **Scope:** `src/asg/gateway.py`, `ASGGateway._log_audit` and its validation/authorization call sites; add a new gateway test module using an injected logger that fails on those calls. Logging/metrics integration may use the repository's existing facilities; do not add a runtime dependency.
+- **Contract notes:** Keep the existing denial and validation response codes and JSON shapes. If the chosen observability behavior changes a response or alters a Phase 0 golden, stop for approval rather than changing the baseline. Do not turn an authorization denial into an allow or allow execution to proceed after a failed decision.
+- **Verification:** Test that denied/invalid requests remain denied and that the audit failure is observable; run existing audit/API tests. Compare OpenAPI and all goldens. Check that successful execution audit failure continues to withhold results.
+- **Risk:** Medium/High. Surfacing a previously swallowed error can affect reliability and error mapping; an incorrect change could mask the original denial or make access fail open.
+- **Rollback:** Revert B4 if denial semantics, success fail-closed behavior, API shape, or golden outputs change unexpectedly.
+
+### Batch B5 — Stop policy rules from being mutated through caller-owned lists
+
+- **Intent:** Make policy-engine ownership of its initial rule set explicit without removing supported `add_rule`/`clear_rules` behavior.
+- **Findings addressed:** COR-01.
+- **Why grouped:** This is a constructor/state-ownership issue in the policy engine, independently testable from rule matching and dynamic update behavior.
+- **Scope:** `src/asg/policy.py`, `DeclarativePolicyEngine.__init__`; add a new policy test module proving external mutation of the constructor's input list cannot silently alter engine decisions, while engine APIs still update decisions.
+- **Contract notes:** Preserve first-match-wins, wildcard semantics, empty-rule default deny, dynamic updates, and `golden/policy.json`.
+- **Verification:** Run the new policy test and existing policy tests; compare policy golden, all remaining goldens, OpenAPI, and full test counts.
+- **Risk:** Low/Medium. Callers that currently rely on mutating the original list after construction would see a behavior change; no such current production call was found.
+- **Rollback:** Revert B5 if current documented/tested dynamic update behavior or the policy golden changes.
+
+### Batch B6 — Validate executor argument type before field access
+
+- **Intent:** Return the executor's documented input error for non-dictionary arguments instead of an incidental attribute error.
+- **Findings addressed:** COR-02.
+- **Why grouped:** This is a small validation-order correction in the executor, with a precise input/error assertion.
+- **Scope:** `src/asg/executor.py`, `ControlledToolExecutor.execute_tool` input checks only; add a new executor test for non-dict input. Do not change gateway-level validation or broaden exception handling.
+- **Contract notes:** Gateway-valid requests and all Phase 0 goldens remain unchanged. This affects only invalid direct executor calls.
+- **Verification:** Run the focused new test and existing executor tests, then full suite and the standard OpenAPI/golden comparisons.
+- **Risk:** Low. Direct callers may rely on the incidental exception type, though it is not the declared `ExecutorInputError` contract.
+- **Rollback:** Revert B6 if the repository's intended invalid-input contract is different from the explicit executor error type.
+
+### Batch B7 — Require an explicitly provisioned broker service secret
+
+- **Intent:** Remove the source-literal broker credential from application composition without introducing any hardcoded/default fallback.
+- **Findings addressed:** CFG-01.
+- **Why grouped:** Secret provisioning and fail-fast startup behavior are a single configuration contract; tests and schema/golden harnesses must use an explicitly supplied test/development value.
+- **Scope:** `main.py` composition and the exact configuration/documentation/test harness surfaces required to supply the value; no edits to `src/` unless the approved implementation requires a typed configuration boundary. If a new setting changes startup behavior, enumerate every script/test importing `main` before implementation. Do not add a default secret.
+- **Contract notes:** This does not inherently change HTTP schema, but missing configuration currently starts the app and would become a startup failure. That is an intentional operational behavior change requiring explicit approval. The Phase 0 harnesses must run with a provisioned test value and produce identical outputs; never embed that value as a fallback in production source.
+- **Verification:** Test both successful composition with explicit configuration and startup failure when it is absent; run all baseline harnesses with the explicit test environment and compare OpenAPI/goldens. Confirm no hardcoded replacement remains.
+- **Risk:** High. It changes app startup requirements and affects ASGI launch, schema capture, and any caller importing `main`.
+- **Rollback:** Revert the B7 commit and its documentation/config tests if deployment cannot provide a secret. Do not restore a hardcoded fallback; pause for a provisioning decision instead.
+
+### Batch B8 — Align the standalone phase runner with current APIs (conditional)
+
+- **Intent:** Make `run_phase5.py` reflect the current gateway/executor/policy construction APIs only if the owner confirms the script is supported.
+- **Findings addressed:** STR-02; ERG-01.
+- **Why grouped:** The stale imports and constructor calls form one broken invocation path; changing only one call would still leave the runner unusable.
+- **Scope:** `run_phase5.py` only, unless a new test is approved; no aliases or compatibility shims in `src/`. First confirm the intended demo tools, policy, broker, and secret configuration because the current script's old call shape does not establish those semantics.
+- **Contract notes:** This is not an HTTP API change, but the runner's desired behavior is not known. Do not add `PolicyEvaluator` or `get_default_broker` aliases.
+- **Verification:** Only after the runner's intended behavior is confirmed, run it with explicit dependencies/configuration and compare the Phase 0 goldens/OpenAPI to ensure no shared behavior changed.
+- **Risk:** Medium. The script may be historical or may encode a now-obsolete workflow.
+- **Rollback:** Revert B8 if the owner identifies it as archival or its intended output cannot be established.
+
+### Batch B9 — Type the security-boundary payloads incrementally (conditional)
+
+- **Intent:** Replace broad/unparameterized boundary types with precise types where they encode actual runtime contracts.
+- **Findings addressed:** TYP-01.
+- **Why grouped:** API payload, executor arguments, broker session state, and audit output form separate boundaries; this batch must be split into cohesive sub-batches during planning if a bounded type-check baseline shows they do not depend on one another.
+- **Scope:** Candidate locations are `src/asg/api.py:ToolCallRequest`, `src/asg/executor.py:ControlledToolExecutor.execute_tool`, `src/asg/broker.py:CredentialBroker._sessions`, and `src/asg/audit.py:AuditLogger.get_recent_records`; exact symbols/files must be narrowed before Phase 4 approval. Do not impose full-strict mypy on unrelated modules.
+- **Contract notes:** Type annotations alone must not alter runtime behavior or serialized API/golden output.
+- **Verification:** Establish the existing type-check baseline/tool first; add no runtime dependencies. Compare per-module diagnostics before/after, run tests, and compare OpenAPI/goldens.
+- **Risk:** Medium. Broad annotation changes can hide rather than expose mismatches if types are inaccurate.
+- **Rollback:** Revert the smallest failing type-only sub-batch; preserve runtime code and test behavior.
+
+### Batch B10 — Document the supported developer workflow (conditional)
+
+- **Intent:** Add textual setup, test, app-start, and supported-entry-point guidance.
+- **Findings addressed:** ERG-02; relevant portions of STR-02 and CFG-01 after those decisions are settled.
+- **Why grouped:** Contributor-facing instructions should describe the approved app composition and configuration, not codify unresolved or stale workflows.
+- **Scope:** `README.md` only after the owner confirms the supported app runner, secret provisioning, and whether `run_phase5.py` is retained.
+- **Contract notes:** Documentation-only; no runtime behavior or golden change.
+- **Verification:** Review commands against the actual environment; no test run is necessary unless repository documentation tests are introduced.
+- **Risk:** Low.
+- **Rollback:** Revert the documentation commit if it describes an unsupported workflow.
+
+## Separate high-risk approval gates
+
+### Approval gate G1 — SEC-01 demo-token route
+
+The route currently appears in the frozen API schema and issues tokens for caller-selected principal IDs. A meaningful restriction changes behavior; removing or relocating the endpoint changes the HTTP contract. **Do not implement SEC-01 as part of another batch.** Before any execution, the owner must explicitly choose and approve one of:
+
+1. **Preserve endpoint and response/status contract:** Define a safe supported principal policy and whether/how unsupported values can be rejected without violating the frozen status/response contract. A behavior change still needs explicit golden/API approval.
+2. **Disable/remove the endpoint in a production configuration:** This changes route availability and likely OpenAPI output; requires a specific exception to invariant #3 and approval to update the relevant baseline.
+3. **Keep the endpoint demo-only but isolate it at a deployment boundary:** Requires verified deployment controls and evidence that the route cannot be reached in the protected deployment; code-only assumptions are insufficient.
+
+Any approved implementation must not introduce a hardcoded secret or compatibility alias. Its scope and verification are to be written as a standalone batch after the owner decision. Until then, SEC-01 remains an assessment finding, not a scheduled code change.
+
+### Approval gate G2 — COR-03 / OBS-01 request-ID correlation
+
+Propagating one request ID into audit records changes the current runtime response/audit values captured by `golden/e2e.json`, even if OpenAPI remains byte-identical. **Do not alter the e2e golden silently.** If the owner wants correlation fixed, approve a separate batch and explicitly authorize the changed golden behavior; preserve response shape and status codes.
+
+## Week-by-week recommendation
+
+### Week 1
+
+1. Approve and execute B1 first; it is the highest-confidence direct security defect with a narrow non-HTTP implementation surface.
+2. Execute B2 with focused tampering tests, then B3 only after choosing the supported concurrency model and demonstrating atomic append behavior.
+3. Execute B4 with failure injection, preserving denial semantics and the success-path fail-closed guarantee.
+4. Execute B5 and B6 if their focused tests confirm the stated ownership and input contracts.
+5. Resolve approval gate G1 early, but do not implement it until route exposure, demo intent, and the HTTP-contract exception are explicitly settled.
+
+### Week 2+
+
+- Resolve the secret provisioning/deployment requirements before B7; do not ship a source-literal fallback.
+- Confirm whether `run_phase5.py` is supported before B8, and establish a type-check tool/baseline before splitting B9 into small sub-batches.
+- Address B10 after the operational decisions are stable.
+- Consider representative concurrency/load and multi-worker tests only after the deployment model and performance target are known.
+- Revisit G2 only with explicit approval to change the e2e golden's request-ID behavior.
+
+## What I would not change
+
+- **PERF-01 / synchronous I/O:** Do not convert the current handlers or persistence path to async or introduce a new database/connection architecture without a measured production workload and target. The current prototype's workload is unknown, and changing transaction/ordering behavior could create more risk than a speculative optimization.
+- **STR-01 / module-level app composition:** Do not reorganize the app or replace the current composition merely for stylistic reasons. The app factory already provides dependency injection, while module-level `app` is a conventional ASGI entry point and is used by the schema capture harness. Revisit only for a demonstrated startup-isolation or multi-worker requirement.
+- **Broad package restructuring:** Do not split modules or add abstractions without a concrete boundary problem; current API, gateway, policy, registry, broker, executor, and audit modules are reasonably separated for this prototype.
+- **Frozen dataclasses:** Preserve existing `frozen=True` models. Do not freeze additional models without a specific invariant and evidence.
+- **Golden outputs or assertions:** Do not update Phase 0 goldens, soften existing assertions, or exclude failing tests to make a batch pass. Any observed difference is a finding that requires explicit approval.
+- **Stale names via aliases:** Do not add aliases to make the old runner import current code; determine whether the runner remains supported and update its caller only if approved.
+- **Hash-chain cryptographic redesign:** Do not add key management, external anchoring, or a new storage system until the intended audit threat model and deployment are known.
+
+## Open decisions before affected batches
+
+- Is the demo-token endpoint intended to be reachable outside local development, and which principals may it issue? What specific API/golden change, if any, is approved?
+- Can any untrusted or less-trusted module invoke the executor directly, or is it strictly private to the gateway process?
+- What deployment model should the audit-chain concurrency guarantee cover: one thread, one process, multiple processes sharing SQLite, or something else?
+- Should denial/validation audit persistence failure be logged and still deny, or should the HTTP result expose an audit failure while retaining the denial? The access decision must never become allow.
+- Is `main.py` expected to fail startup without an explicitly provisioned service secret, and how will schema/test harnesses receive a non-production value?
+- Is `run_phase5.py` a supported runnable workflow or historical material?
+- Which type checker and per-module diagnostic baseline, if any, are required?
+- Are the current Phase 0 outputs immutable evidence, or may a specifically approved batch revise a golden when the desired behavior intentionally changes?
