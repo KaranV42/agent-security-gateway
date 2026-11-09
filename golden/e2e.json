@@ -4,9 +4,9 @@
       "request_id": "00000000-0000-0000-0000-000000000001",
       "result": [
         {
-          "price": 150.25,
-          "symbol": "AAPL",
-          "volume": 1000000
+          "content": "Synthetic public content",
+          "label": "Example public record",
+          "record_id": "public-001"
         }
       ],
       "status": "SUCCESS"

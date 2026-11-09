@@ -23,24 +23,24 @@ def gateway():
     executor = ControlledToolExecutor(connection, broker)
     
     registry = ToolRegistry()
-    registry.register("read_market_data", ToolSchema(
-        required_args=frozenset({"table_name"}), resource_arg="table_name",
-        allowed_resources=frozenset({"market_data"})
+    registry.register("read_data", ToolSchema(
+        required_args=frozenset({"resource_id"}), resource_arg="resource_id",
+        allowed_resources=frozenset({"public_records"})
     ))
     
     policy = DeclarativePolicyEngine()
-    policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
+    policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
     
-    yield ASGGateway(executor, registry, "wealth_advisor", policy, _DummyAuditLogger(), broker, TEST_SECRET)
+    yield ASGGateway(executor, registry, "admin", policy, _DummyAuditLogger(), broker, TEST_SECRET)
     connection.close()
 
-def test_agent_reads_market_data_through_gateway(gateway):
+def test_agent_reads_public_records_through_gateway(gateway):
     result = run_agent(gateway)
-    assert result[0]["symbol"] == "AAPL"
+    assert result[0]["record_id"] == "public-001"
 
 def test_gateway_forwards_tool_request(gateway):
-    result = gateway.execute_tool("read_market_data", {"table_name": "market_data"})
-    assert result[0]["symbol"] == "AAPL"
+    result = gateway.execute_tool("read_data", {"resource_id": "public_records"})
+    assert result[0]["record_id"] == "public-001"
 
 def test_agent_runtime_does_not_import_executor():
     import asg.agent_runtime as runtime

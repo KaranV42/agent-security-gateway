@@ -12,31 +12,31 @@ def executor_and_broker():
     yield ControlledToolExecutor(connection, broker), broker
     connection.close()
 
-def test_reads_market_data(executor_and_broker):
+def test_reads_public_records(executor_and_broker):
     executor, broker = executor_and_broker
-    token = broker.issue_session_token("market_data")
-    assert executor.execute_tool("read_market_data", {"table_name": "market_data"}, token)[0]["symbol"] == "AAPL"
+    token = broker.issue_session_token("public_records")
+    assert executor.execute_tool("read_data", {"resource_id": "public_records"}, token)[0]["record_id"] == "public-001"
 
 def test_rejects_unknown_tool(executor_and_broker):
     executor, broker = executor_and_broker
-    token = broker.issue_session_token("market_data")
+    token = broker.issue_session_token("public_records")
     with pytest.raises(ExecutorInputError):
         executor.execute_tool("delete_all_data", {}, token)
 
-def test_rejects_unknown_table(executor_and_broker):
+def test_rejects_unknown_resource(executor_and_broker):
     executor, broker = executor_and_broker
-    token = broker.issue_session_token("market_data")
+    token = broker.issue_session_token("public_records")
     with pytest.raises(ExecutorInputError):
-        executor.execute_tool("read_market_data", {"table_name": "unknown_table"}, token)
+        executor.execute_tool("read_data", {"resource_id": "unknown_resource"}, token)
 
 def test_rejects_raw_sql_input(executor_and_broker):
     executor, broker = executor_and_broker
-    token = broker.issue_session_token("market_data")
+    token = broker.issue_session_token("public_records")
     with pytest.raises(ExecutorInputError):
-        executor.execute_tool("read_market_data", {"table_name": "market_data; DROP TABLE market_data;"}, token)
+        executor.execute_tool("read_data", {"resource_id": "public_records'; DROP TABLE public_records;--"}, token)
 
 def test_rejects_extra_arguments(executor_and_broker):
     executor, broker = executor_and_broker
-    token = broker.issue_session_token("market_data")
+    token = broker.issue_session_token("public_records")
     with pytest.raises(ExecutorInputError):
-        executor.execute_tool("read_market_data", {"table_name": "market_data", "sql": "DROP TABLE market_data"}, token)
+        executor.execute_tool("read_data", {"resource_id": "public_records", "sql": "DROP TABLE public_records"}, token)

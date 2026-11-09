@@ -9,9 +9,9 @@ def mock_agent_request() -> dict:
     """Simulate an LLM-generated tool request."""
     return json.loads("""
     {
-        "tool": "read_market_data",
+        "tool": "read_data",
         "args": {
-            "table_name": "market_data"
+            "resource_id": "public_records"
         }
     }
     """)

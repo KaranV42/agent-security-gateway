@@ -26,26 +26,22 @@ def make_gateway():
         broker = CredentialBroker(asg_service_secret=TEST_SECRET)
         executor = ControlledToolExecutor(connection, broker)
         registry = ToolRegistry()
-        registry.register("read_market_data", ToolSchema(
-            required_args=frozenset({"table_name"}), resource_arg="table_name",
-            allowed_resources=frozenset({"market_data", "client_pii"})
-        ))
-        registry.register("read_client_pii", ToolSchema(
-            required_args=frozenset({"table_name"}), resource_arg="table_name",
-            allowed_resources=frozenset({"market_data", "client_pii"})
+        registry.register("read_data", ToolSchema(
+            required_args=frozenset({"resource_id"}), resource_arg="resource_id",
+            allowed_resources=frozenset({"public_records", "restricted_records"})
         ))
         policy = DeclarativePolicyEngine()
-        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
-        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="client_pii", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="restricted_records", effect=Effect.ALLOW, reason="Allow"))
         
         return ASGGateway(executor, registry, principal_id, policy, audit_logger, broker, TEST_SECRET), connection
     return _factory
 
 def test_successful_execution_logs_auth_and_execution(make_gateway):
     logger = InMemoryAuditLogger()
-    gateway, conn = make_gateway("wealth_advisor", logger)
+    gateway, conn = make_gateway("admin", logger)
     try:
-        gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+        gateway.execute_tool("read_data", {"resource_id": "public_records"})
         assert len(logger.records) == 2
         assert logger.records[0].phase == AuditPhase.AUTHORIZATION and logger.records[0].outcome == "ALLOW"
         assert logger.records[1].phase == AuditPhase.EXECUTION and logger.records[1].outcome == "SUCCESS"
@@ -54,37 +50,37 @@ def test_successful_execution_logs_auth_and_execution(make_gateway):
 
 def test_denied_request_logs_auth_deny_and_skips_execution(make_gateway):
     logger = InMemoryAuditLogger()
-    gateway, conn = make_gateway("client_portal", logger) # client_portal denied client_pii
+    gateway, conn = make_gateway("analyst", logger) # analysts are denied restricted records
     try:
         with pytest.raises(AuthorizationError):
-            gateway.execute_tool("read_client_pii", {"table_name": "client_pii"})
+            gateway.execute_tool("read_data", {"resource_id": "restricted_records"})
         assert len(logger.records) == 1 and logger.records[0].outcome == "DENY"
     finally: conn.close()
 
 def test_audit_failure_withholds_result(make_gateway):
     logger = InMemoryAuditLogger(fail_on_call=2)
-    gateway, conn = make_gateway("wealth_advisor", logger)
+    gateway, conn = make_gateway("admin", logger)
     try:
         with pytest.raises(AuditPersistenceError, match="Audit logging failed"):
-            gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+            gateway.execute_tool("read_data", {"resource_id": "public_records"})
         assert len(logger.records) == 1
     finally: conn.close()
 
 def test_validation_failure_logs_auth_deny(make_gateway):
     logger = InMemoryAuditLogger()
-    gateway, conn = make_gateway("wealth_advisor", logger)
+    gateway, conn = make_gateway("admin", logger)
     try:
         with pytest.raises(ToolValidationError):
-            gateway.execute_tool("read_market_data", {"table_name": "invalid_table"})
+            gateway.execute_tool("read_data", {"resource_id": "invalid_resource"})
         assert len(logger.records) == 1 and "Validation failed" in logger.records[0].reason
     finally: conn.close()
 
 def test_request_ids_are_unique(make_gateway):
     logger = InMemoryAuditLogger()
-    gateway, conn = make_gateway("wealth_advisor", logger)
+    gateway, conn = make_gateway("admin", logger)
     try:
-        gateway.execute_tool("read_market_data", {"table_name": "market_data"})
-        gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+        gateway.execute_tool("read_data", {"resource_id": "public_records"})
+        gateway.execute_tool("read_data", {"resource_id": "public_records"})
         ids = {record.request_id for record in logger.records}
         assert len(ids) == 2
     finally: conn.close()

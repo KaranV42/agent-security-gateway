@@ -23,13 +23,13 @@ def gateway():
     broker = CredentialBroker(asg_service_secret=TEST_SECRET)
     executor = ControlledToolExecutor(connection, broker)
     registry = ToolRegistry()
-    registry.register("read_market_data", ToolSchema(
-        required_args=frozenset({"table_name"}), resource_arg="table_name",
-        allowed_resources=frozenset({"market_data"})
+    registry.register("read_data", ToolSchema(
+        required_args=frozenset({"resource_id"}), resource_arg="resource_id",
+        allowed_resources=frozenset({"public_records"})
     ))
     policy = DeclarativePolicyEngine()
-    policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
-    yield ASGGateway(executor, registry, "wealth_advisor", policy, _DummyAuditLogger(), broker, TEST_SECRET)
+    policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
+    yield ASGGateway(executor, registry, "admin", policy, _DummyAuditLogger(), broker, TEST_SECRET)
     connection.close()
 
 def test_gateway_validates_unknown_tool(gateway):
@@ -38,26 +38,26 @@ def test_gateway_validates_unknown_tool(gateway):
 
 def test_gateway_validates_missing_argument(gateway):
     with pytest.raises(ToolValidationError, match="Missing required"):
-        gateway.execute_tool("read_market_data", {})
+        gateway.execute_tool("read_data", {})
 
 def test_gateway_validates_unexpected_argument(gateway):
     with pytest.raises(ToolValidationError, match="Unexpected arguments"):
-        gateway.execute_tool("read_market_data", {"table_name": "market_data", "extra": "arg"})
+        gateway.execute_tool("read_data", {"resource_id": "public_records", "extra": "arg"})
 
 def test_gateway_validates_unauthorized_resource(gateway):
     with pytest.raises(ToolValidationError, match="not permitted"):
-        gateway.execute_tool("read_market_data", {"table_name": "client_pii"})
+        gateway.execute_tool("read_data", {"resource_id": "restricted_records"})
 
 def test_gateway_blocks_execution_on_validation_failure():
     executor = _FailingExecutor()
     registry = ToolRegistry()
-    registry.register("read_market_data", ToolSchema(
-        required_args=frozenset({"table_name"}), resource_arg="table_name",
-        allowed_resources=frozenset({"market_data"})
+    registry.register("read_data", ToolSchema(
+        required_args=frozenset({"resource_id"}), resource_arg="resource_id",
+        allowed_resources=frozenset({"public_records"})
     ))
     policy = DeclarativePolicyEngine()
     broker = CredentialBroker(asg_service_secret=TEST_SECRET)
-    gateway = ASGGateway(executor, registry, "wealth_advisor", policy, _DummyAuditLogger(), broker, TEST_SECRET)
+    gateway = ASGGateway(executor, registry, "admin", policy, _DummyAuditLogger(), broker, TEST_SECRET)
     
     with pytest.raises(ToolValidationError):
-        gateway.execute_tool("read_market_data", {"table_name": "client_pii"})
+        gateway.execute_tool("read_data", {"resource_id": "restricted_records"})

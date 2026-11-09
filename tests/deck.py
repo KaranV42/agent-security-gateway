@@ -30,13 +30,13 @@ def client():
     executor = ControlledToolExecutor(connection, broker)
     
     registry = ToolRegistry()
-    registry.register("read_market_data", ToolSchema(
-        description="Reads public market data.", required_args=frozenset({"table_name"}),
-        resource_arg="table_name", allowed_resources=frozenset({"market_data"})
+    registry.register("read_data", ToolSchema(
+        description="Reads records from an authorized resource.", required_args=frozenset({"resource_id"}),
+        resource_arg="resource_id", allowed_resources=frozenset({"public_records"})
     ))
     
     policy = DeclarativePolicyEngine()
-    policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
+    policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
     
     logger = PersistentAuditLogger(db_path=TEST_DB_PATH)
     
@@ -47,11 +47,11 @@ def client():
     if Path(TEST_DB_PATH).exists():
         os.remove(TEST_DB_PATH)
 
-# --- 1. Performance Metrics (Investor Demand: p95 Latency) ---
+# --- 1. Performance Metrics (p95 Latency) ---
 def test_p95_policy_and_validation_latency(client):
     """Measures the p95 latency of the ASG enforcement boundary."""
     test_client, _, _, _ = client
-    token = idp.generate_token("wealth_advisor")
+    token = idp.generate_token("admin")
     
     latencies = []
     iterations = 500
@@ -59,7 +59,7 @@ def test_p95_policy_and_validation_latency(client):
     for _ in range(iterations):
         start = time.perf_counter()
         test_client.post("/api/v1/execute", 
-            json={"tool_name": "read_market_data", "arguments": {"table_name": "market_data"}},
+            json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},
             headers={"Authorization": f"Bearer {token}"}
         )
         end = time.perf_counter()
@@ -76,7 +76,7 @@ def test_p95_policy_and_validation_latency(client):
     print(f"p95 Latency: {p95_latency:.2f} ms")
     print(f"---------------------------\n")
     
-    # Assert p95 is under 50ms (generous for local SQLite, in production with OPA/Redis it will be <5ms)
+    # Assert p95 is under 50ms for the local SQLite demonstration.
     assert p95_latency < 50.0 
 
 # --- 2. Bypass Resistance (Investor Demand: Bypass-resistance test results) ---
@@ -86,22 +86,22 @@ def test_executor_bypass_resistance(client):
     
     # Attempt to call executor with a fake token
     with pytest.raises(ExecutorInputError, match="Invalid or expired session token"):
-        executor.execute_tool("read_market_data", {"table_name": "market_data"}, "fake-token")
+        executor.execute_tool("read_data", {"resource_id": "public_records"}, "fake-token")
         
     # Attempt to call executor with an expired token
-    expired_token = broker.issue_session_token("market_data", ttl_seconds=-1)
+    expired_token = broker.issue_session_token("public_records", ttl_seconds=-1)
     with pytest.raises(ExecutorInputError, match="Invalid or expired session token"):
-        executor.execute_tool("read_market_data", {"table_name": "market_data"}, expired_token)
+        executor.execute_tool("read_data", {"resource_id": "public_records"}, expired_token)
 
 # --- 3. Red Team: Schema Abuse & SQL Injection ---
 def test_sql_injection_in_resource_id(client):
     """Proves the registry and executor prevent SQL injection via resource names."""
     test_client, _, _, _ = client
-    token = idp.generate_token("wealth_advisor")
+    token = idp.generate_token("admin")
     
     # Attempt SQL injection
     response = test_client.post("/api/v1/execute", 
-        json={"tool_name": "read_market_data", "arguments": {"table_name": "market_data'; DROP TABLE market_data;--"}},
+        json={"tool_name": "read_data", "arguments": {"resource_id": "public_records'; DROP TABLE public_records;--"}},
         headers={"Authorization": f"Bearer {token}"}
     )
     
@@ -110,7 +110,7 @@ def test_sql_injection_in_resource_id(client):
     
     # Prove the table was NOT dropped by making a legitimate request immediately after
     response2 = test_client.post("/api/v1/execute", 
-        json={"tool_name": "read_market_data", "arguments": {"table_name": "market_data"}},
+        json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response2.status_code == 200
@@ -132,7 +132,7 @@ def test_expired_token_rejection(client):
     )
     
     expired_payload = {
-        "sub": "wealth_advisor",
+        "sub": "admin",
         "iss": "https://idp.asg-prototype.local",
         "aud": "https://api.asg-prototype.local",
         "exp": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1) # Expired 1 hour ago
@@ -140,7 +140,7 @@ def test_expired_token_rejection(client):
     expired_token = jwt.encode(expired_payload, private_pem, algorithm="RS256", headers={"kid": idp._kid})
     
     response = test_client.post("/api/v1/execute", 
-        json={"tool_name": "read_market_data", "arguments": {"table_name": "market_data"}},
+        json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},
         headers={"Authorization": f"Bearer {expired_token}"}
     )
     
@@ -161,10 +161,10 @@ def test_audit_completeness_fail_closed(client):
     os.chmod(TEST_DB_PATH, 0o000) 
     
     test_client, _, _, _ = client
-    token = idp.generate_token("wealth_advisor")
+    token = idp.generate_token("admin")
     
     response = test_client.post("/api/v1/execute", 
-        json={"tool_name": "read_market_data", "arguments": {"table_name": "market_data"}},
+        json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},
         headers={"Authorization": f"Bearer {token}"}
     )
     

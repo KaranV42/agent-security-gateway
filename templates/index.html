@@ -10,7 +10,7 @@
     <div class="max-w-6xl mx-auto p-6">
         <header class="mb-8 border-b pb-4">
             <h1 class="text-3xl font-bold text-gray-900">Agent Security Gateway (ASG)</h1>
-            <p class="text-gray-600 mt-2">Financial Services Prototype: Observe enforcement, validation, and audit in real-time.</p>
+            <p class="text-gray-600 mt-2">Observe agent tool enforcement, validation, and audit in real time.</p>
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -21,22 +21,21 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Test Principal (Demo)</label>
                         <select id="principal" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
-                            <option value="wealth_advisor">wealth_advisor (Admin)</option>
-                            <option value="client_portal">client_portal (Viewer)</option>
+                            <option value="admin">admin</option>
+                            <option value="analyst">analyst</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Requested Tool</label>
                         <select id="tool" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
-                            <option value="read_market_data">read_market_data</option>
-                            <option value="read_client_pii">read_client_pii</option>
+                            <option value="read_data">read_data</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Target Resource</label>
                         <select id="resource" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
-                            <option value="market_data">market_data</option>
-                            <option value="client_pii">client_pii</option>
+                            <option value="public_records">public_records</option>
+                            <option value="restricted_records">restricted_records</option>
                         </select>
                     </div>
                     <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition font-medium">
@@ -82,7 +81,7 @@
         let authToken = "";
 
         // 1. Fetch a demo token on load
-        async function fetchToken(principal = "wealth_advisor") {
+        async function fetchToken(principal = "admin") {
             try {
                 const response = await fetch(`/api/v1/auth/demo-token?principal_id=${principal}`, {
                     method: 'POST'
@@ -145,7 +144,7 @@
             const resource = document.getElementById('resource').value;
 
             // If the user selects a different principal in the UI, fetch a new token for them
-            if (!authToken || principal !== "wealth_advisor") {
+            if (!authToken || principal !== "admin") {
                 await fetchToken(principal);
             }
 
@@ -156,7 +155,7 @@
 
             const payload = {
                 tool_name: tool,
-                arguments: { table_name: resource }
+                arguments: { resource_id: resource }
             };
 
             const resultBox = document.getElementById('resultBox');

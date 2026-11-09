@@ -22,36 +22,30 @@ broker = CredentialBroker(asg_service_secret=ASG_SERVICE_SECRET)
 db_connection = create_mock_database()
 executor = ControlledToolExecutor(db_connection, broker)
 
-# --- 2. Registry (Financial Services Wedge) ---
+# --- 2. Generic Data Registry ---
 registry = ToolRegistry()
-registry.register("read_market_data", ToolSchema(
-    description="Reads public market data.",
-    required_args=frozenset({"table_name"}), 
-    resource_arg="table_name",
-    allowed_resources=frozenset({"market_data"})
-))
-registry.register("read_client_pii", ToolSchema(
-    description="Reads sensitive client PII.",
-    required_args=frozenset({"table_name"}), 
-    resource_arg="table_name",
-    allowed_resources=frozenset({"client_pii"})
+registry.register("read_data", ToolSchema(
+    description="Reads records from an authorized resource.",
+    required_args=frozenset({"resource_id"}),
+    resource_arg="resource_id",
+    allowed_resources=frozenset({"public_records", "restricted_records"})
 ))
 
 # --- 3. Declarative Policy ---
 policy = DeclarativePolicyEngine()
 policy.add_rule(PolicyRule(
-    principal_id="wealth_advisor", action="read", resource_id="market_data", 
-    effect=Effect.ALLOW, reason="Advisors can view market data."
+    principal_id="admin", action="read", resource_id="public_records",
+    effect=Effect.ALLOW, reason="Administrators can read public records."
 ))
 policy.add_rule(PolicyRule(
-    principal_id="wealth_advisor", action="read", resource_id="client_pii", 
-    effect=Effect.ALLOW, reason="Advisors can view assigned client PII."
+    principal_id="admin", action="read", resource_id="restricted_records",
+    effect=Effect.ALLOW, reason="Administrators can read restricted records."
 ))
 policy.add_rule(PolicyRule(
-    principal_id="client_portal", action="read", resource_id="market_data", 
-    effect=Effect.ALLOW, reason="Clients can view market data."
+    principal_id="analyst", action="read", resource_id="public_records",
+    effect=Effect.ALLOW, reason="Analysts can read public records."
 ))
-# Note: client_portal accessing client_pii is intentionally omitted (Default-Deny)
+# Note: analyst access to restricted records is intentionally omitted (default-deny).
 
 # --- 4. Audit & App Initialization ---
 audit_logger = PersistentAuditLogger(db_path="audit.db")

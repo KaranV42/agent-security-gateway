@@ -36,30 +36,21 @@ if __name__ == "__main__":
 
     registry = ToolRegistry()
     registry.register(
-        "read_market_data",
+        "read_data",
         ToolSchema(
-            description="Reads public market data.",
-            required_args=frozenset({"table_name"}),
-            resource_arg="table_name",
-            allowed_resources=frozenset({"market_data"}),
-        ),
-    )
-    registry.register(
-        "read_client_pii",
-        ToolSchema(
-            description="Reads sensitive client PII.",
-            required_args=frozenset({"table_name"}),
-            resource_arg="table_name",
-            allowed_resources=frozenset({"client_pii"}),
+            description="Reads records from an authorized resource.",
+            required_args=frozenset({"resource_id"}),
+            resource_arg="resource_id",
+            allowed_resources=frozenset({"public_records", "restricted_records"}),
         ),
     )
 
     policy = DeclarativePolicyEngine(
         [
             PolicyRule(
-                principal_id="wealth_advisor",
+                principal_id="admin",
                 action="read",
-                resource_id="market_data",
+                resource_id="public_records",
                 effect=Effect.ALLOW,
                 reason="Golden smoke authorized access",
             )
@@ -83,21 +74,21 @@ if __name__ == "__main__":
                 authorized = client.post(
                     "/api/v1/execute",
                     json={
-                        "tool_name": "read_market_data",
-                        "arguments": {"table_name": "market_data"},
+                        "tool_name": "read_data",
+                        "arguments": {"resource_id": "public_records"},
                     },
                     headers={
-                        "Authorization": f"Bearer {idp.generate_token('wealth_advisor')}"
+                        "Authorization": f"Bearer {idp.generate_token('admin')}"
                     },
                 )
                 unauthorized = client.post(
                     "/api/v1/execute",
                     json={
-                        "tool_name": "read_client_pii",
-                        "arguments": {"table_name": "client_pii"},
+                        "tool_name": "read_data",
+                        "arguments": {"resource_id": "restricted_records"},
                     },
                     headers={
-                        "Authorization": f"Bearer {idp.generate_token('client_portal')}"
+                        "Authorization": f"Bearer {idp.generate_token('analyst')}"
                     },
                 )
 

@@ -19,12 +19,12 @@ tests/test_models.py::TestAuthorizationDecision::test_valid_deny_decision
 tests/test_models.py::TestAuthorizationDecision::test_rejects_string_instead_of_effect
 tests/test_models.py::TestAuthorizationDecision::test_rejects_empty_reason
 tests/test_models.py::TestAuthorizationDecision::test_decision_is_immutable
-tests/test_phase1.py::test_reads_market_data
+tests/test_phase1.py::test_reads_public_records
 tests/test_phase1.py::test_rejects_unknown_tool
-tests/test_phase1.py::test_rejects_unknown_table
+tests/test_phase1.py::test_rejects_unknown_resource
 tests/test_phase1.py::test_rejects_raw_sql_input
 tests/test_phase1.py::test_rejects_extra_arguments
-tests/test_phase2.py::test_agent_reads_market_data_through_gateway
+tests/test_phase2.py::test_agent_reads_public_records_through_gateway
 tests/test_phase2.py::test_gateway_forwards_tool_request
 tests/test_phase2.py::test_agent_runtime_does_not_import_executor
 tests/test_phase2.py::test_gateway_rejects_unknown_tool
@@ -33,10 +33,10 @@ tests/test_phase3.py::test_gateway_validates_missing_argument
 tests/test_phase3.py::test_gateway_validates_unexpected_argument
 tests/test_phase3.py::test_gateway_validates_unauthorized_resource
 tests/test_phase3.py::test_gateway_blocks_execution_on_validation_failure
-tests/test_phase4.py::test_advisor_can_read_market_data
-tests/test_phase4.py::test_advisor_can_read_client_pii
-tests/test_phase4.py::test_portal_can_read_market_data
-tests/test_phase4.py::test_portal_cannot_read_client_pii
+tests/test_phase4.py::test_admin_can_read_public_records
+tests/test_phase4.py::test_admin_can_read_restricted_records
+tests/test_phase4.py::test_analyst_can_read_public_records
+tests/test_phase4.py::test_analyst_cannot_read_restricted_records
 tests/test_phase4.py::test_unknown_user_denied_by_default
 tests/test_phase4.py::test_agent_cannot_spoof_principal
 tests/test_phase5.py::test_successful_execution_logs_auth_and_execution
@@ -50,4 +50,4 @@ tests/test_policy.py::test_wildcard_principal_rule
 tests/test_policy.py::test_first_match_wins
 tests/test_policy.py::test_dynamic_rule_update
 
-51 tests collected in 0.49s
+51 tests collected in 0.38s

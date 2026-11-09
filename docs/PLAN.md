@@ -174,3 +174,84 @@ Propagating one request ID into audit records changes the current runtime respon
 - Is `run_phase5.py` a supported runnable workflow or historical material?
 - Which type checker and per-module diagnostic baseline, if any, are required?
 - Are the current Phase 0 outputs immutable evidence, or may a specifically approved batch revise a golden when the desired behavior intentionally changes?
+
+## Strategic Pivot: Genericization & Chatbot Preparation
+
+### Pivot scope and constraints
+
+This section supersedes the earlier B1-first ordering where it conflicts with the newly approved Generic Agent Security Gateway direction. **B0 must precede B1.5.** The previously discussed executor scope fix is not to be replayed as a standalone pre-pivot change; re-evaluate and carry its security invariant into the generic executor design. No code is changed by this plan.
+
+The user explicitly authorizes changing the OpenAPI and Phase 0 golden baselines only as necessary for this pivot. That authorization is not permission for unrelated API changes, weakening security assertions, or regenerating baselines before the new behavior is reviewed. Preserve the existing `baseline` tag as the original financial-domain reference; do not move or overwrite it.
+
+### Current architecture relevant to the pivot
+
+- **`ControlledToolExecutor` is a concrete SQLite adapter today.** Its constructor requires a `sqlite3.Connection` and `CredentialBroker`; `_TABLES` hard-codes `read_market_data -> market_data` and `read_client_pii -> client_pii`. Execution validates a broker session, interpolates the mapped table into a local SQLite query, and returns row dictionaries (`src/asg/executor.py`). Genericizing names alone will not make it backend-independent.
+- **`CredentialBroker` is not intrinsically financial.** It issues in-memory tokens scoped to an opaque `resource_id` string and validates token existence, expiry, and resource equality (`src/asg/broker.py`). Genericization should give that resource a domain-neutral meaning, such as a configured tool/resource scope, without storing third-party credentials in session state. The scope must still constrain the actual backend operation, not merely a caller-supplied argument.
+- **`ToolRegistry` is mostly domain-neutral but models input shape, not execution.** `ToolSchema` contains required arguments, optional `resource_arg`, and optional allowed-resource values; it exports tool metadata and validates calls (`src/asg/registry.py`). It has no explicit backend/connector identity or operation binding today. Keep policy, schema validation, and backend execution as distinct responsibilities.
+- **Financial assumptions are distributed, not confined to the UI.** The configured principals, tools, resources, descriptions, policy rules, and fixture data appear in `main.py`, `src/asg/database.py`, `src/asg/agent_runtime.py`, `src/asg/executor.py`, tests including `tests/deck.py`, and `templates/index.html`. The template also hard-codes token-fetch defaults, role/tool/resource choices, and the execute payload's `table_name`; changing only visible labels would leave the UI behavior and examples domain-specific.
+- **Chatbot integration is not an executor feature by itself.** A website chatbot should call the ASG from a trusted server-side orchestration layer. The browser/model must not choose an authoritative principal, provide provider credentials, or select arbitrary outbound URLs. Tool definitions exposed to a chatbot should be derived from the registry's allow-listed metadata and remain subject to server-side authentication, policy evaluation, and execution authorization.
+
+### Batch B0 — Genericize the ASG domain and establish generic baselines
+
+- **Approval resolution:** The owner approved fixture-value and test-function-name updates for B0, while requiring assertion meanings and negative security coverage to remain unchanged. The selected demo principals are `admin` and `analyst`; the operation is `read_data`; resources are `public_records` and `restricted_records`. The executor may update its fixed SQLite resource mapping, but no backend-neutral abstraction or HTTP adapter is included.
+- **Intent:** Replace the financial-services demonstration vocabulary and fixtures with a small, clearly synthetic, domain-neutral example while retaining the gateway's existing security responsibilities.
+- **Findings addressed / work carried:** The pivot's generic-domain requirement; relevant context from SEC-02, TST-02, TST-04, and ERG-02. This batch is not an authorization to implement unrelated assessment findings.
+- **Why grouped:** The names and sample values are coupled across app composition, registry definitions, policy rules, database fixtures, agent examples, UI form choices, tests, and golden outputs. A partial rename would leave an inconsistent demo or make the golden harnesses describe different behavior from the app.
+- **Scope to inventory and update after approval:**
+  - `main.py`: replace finance-branded configuration, demo principals, tools/resources, rule reasons, and descriptions with generic example identities and operations.
+  - `src/asg/agent_runtime.py`: replace the hard-coded financial mock request with a generic tool/resource request.
+  - `src/asg/database.py`: replace financial table names and values, including the synthetic SSN/wealth fixture, with non-sensitive generic records; keep it explicitly a mock database.
+  - `src/asg/executor.py`: replace financial-specific tool/table examples. Preserve the executor's narrow configured-operation boundary; do not permit model input to become a table identifier.
+  - `templates/index.html`: remove financial-service copy and replace principal/tool/resource options, default principal, labels, and request payload field names/values with the generic demo. Keep it a UI demonstration, not the future website chatbot or a new trust boundary.
+  - `tests/` and `tests/deck.py`: the existing Phase 4 test constraint permits import/path adjustments only; it does not permit changing fixture values, assertions, or test names. Those existing tests will refer to finance-specific values after a source/data migration unless the owner explicitly approves a narrow B0 exception to that constraint. Do not add compatibility aliases to keep obsolete financial fixtures passing. New generic-domain assertions may be added in new test files after B0 is approved.
+  - Golden generators and outputs: update only fixtures whose serialized behavior intentionally changes. Review all generator inputs and expected output before replacing any checked-in golden.
+  - `README.md` and `docs/UNDERSTANDING.md`: update financial-domain descriptions only after runtime scope and generic examples are settled; preserve historical Phase 0 provenance in the plan/assessment.
+- **Generic example direction:** Use the approved `admin` and `analyst` principals, the `read_data` operation, and synthetic `public_records` / `restricted_records` resources. Keep default-deny: `admin` may read both resources, while `analyst` may read only `public_records`. Avoid real-looking secrets, identity numbers, or personal data in fixtures.
+- **Verification:** First run existing tests against the converted fixtures and identify every failure as either an incomplete rename or an intentional behavior change. Add or retain tests for default-deny, argument/resource validation, issuer/token validation, broker scope, audit behavior, and executor-to-resource binding. Verify the app's tool list and UI examples use consistent generic names. Run schema capture and every golden generator, compare outputs to the original baselines, and inspect each diff before replacing any baseline file. Do not claim the new baselines are equivalent to the old ones; they document the approved generic-domain behavior.
+- **API/OpenAPI contract:** Preserve endpoint paths, methods, request/response field shapes, and status codes unless the owner separately approves a contract change. Tool/resource examples may change in returned data or UI without necessarily appearing in OpenAPI because the tool catalog is returned dynamically; inspect the actual schema diff rather than assuming it must change. If an intended public schema difference appears, isolate and explain it before updating `baseline_openapi.json`.
+- **Safe baseline/golden update procedure:**
+  1. Start from the approved pivot branch with the original baseline commit/tag intact; record the old artifact hashes or copy old artifacts to a temporary comparison directory outside the repo.
+  2. Implement B0 and run tests before touching any baseline/golden artifact.
+  3. Generate candidate OpenAPI and golden JSON outputs, review the exact diffs file by file, and confirm they reflect only the generic fixtures/behavior that B0 intentionally changes.
+  4. Check schema endpoint/method/parameter/response compatibility separately from any intentional schema metadata difference. A name/value-only demo change is not by itself a reason to accept unrelated OpenAPI drift.
+  5. Confirm JWT validation, default-deny, broker expiry/scope, hash-chain determinism for the new fixed fixture, e2e allow/deny outcomes, and no sensitive/financial sample values remain in the new fixtures.
+  6. Only after that review, replace the same-named current baseline/golden files and commit them in the B0 change with a clear message identifying them as the generic-domain baseline. Do not overwrite or retag the original `baseline` tag; use Git history to retain the original outputs.
+  7. Regenerate once more from a clean tree and verify byte-identical output. Record in the commit/Phase 5 changelog which files changed and why; if an unexplained difference remains, stop rather than bless it.
+- **Test-invariant gate:** Resolved for B0 by explicit owner approval: fixture values and test function names may be genericized, but assertion meanings and negative security coverage must remain unchanged. The full existing suite must pass after genericization; do not add legacy aliases.
+- **Risk:** Medium/High. The vocabulary and test fixture changes span the full demo surface; careless replacements can accidentally remove a negative security case or make tests pass against a weakened boundary.
+- **Rollback:** Revert the B0 commit as a unit, including its generated generic baselines, leaving the original `baseline` tag untouched. Do not hand-restore selected golden files from memory.
+
+### Batch B1.5 — Introduce a backend-neutral execution port for chatbot preparation
+
+- **Intent:** Separate gateway authorization from backend execution so configured tools can later be served by local SQLite or fixed HTTP integrations without exposing arbitrary network access.
+- **Findings addressed / work carried:** Generic executor abstraction and future chatbot integration readiness; carry forward the SEC-02 invariant that the broker scope and authorized resource must bind to the actual selected operation.
+- **Why grouped:** An execution port, the existing SQLite implementation behind it, and its contract tests must move together. Adding an HTTP implementation before defining the port and security boundary would entangle provider-specific behavior with gateway policy and invite arbitrary-request execution.
+- **Scope to design and narrow before implementation approval:**
+  - Define a small `ToolExecutor` protocol (or existing-project-appropriate interface) around a typed execution request/result and a domain error contract. Keep gateway orchestration dependent on the interface, not on SQLite.
+  - Adapt the current SQLite behavior as a concrete implementation behind that interface, retaining a fixed, configured mapping from registered operation to local query/table and parameter-free table selection.
+  - Give the registry an explicit, server-owned operation/backend binding only if needed by the adapter design; it must not accept user/model-supplied URLs, SQL, provider credentials, or arbitrary connector identifiers.
+  - Define how broker scope is associated with a configured backend operation and resource. Validate that the scope checked by the executor is the scope the adapter actually uses; do not use a model-controlled argument as the sole authority for the protected sink.
+  - Keep provider credentials in server-side configuration/secret handling, never in tool arguments, chatbot prompts, browser code, audit records, or broker session payloads.
+  - Add only the interface and SQLite adapter in this preparation batch. A Stripe/Zendesk/other HTTP adapter, outbound HTTP call, retry behavior, provider-specific models, new endpoints, and actual website chatbot are explicitly out of scope and require separate design/approval.
+- **Chatbot preparation constraints:** The website/browser should communicate with the chatbot's trusted server, which authenticates the user and supplies a verified principal to the ASG. Never trust a principal, authorization decision, or resource ownership claim supplied only by the browser or model. The registry must expose only configured tool schemas; policy remains authoritative for every invocation. Do not implement conversation storage, prompt policy, UI chat widgets, or production identity federation in this batch.
+- **HTTP/API contract:** Keep current ASG HTTP paths and request/response shape unchanged in B1.5. If the interface requires an externally visible schema/endpoint/field change, stop and request a separate explicit approval; the pivot's baseline exception is not blanket approval for unrelated API expansion.
+- **Verification:** Add tests for an in-memory/fake implementation satisfying the interface, the existing SQLite adapter's current generic allow/deny behavior, adapter error translation, and the executor/broker scope-to-operation binding. Run the full suite and the post-B0 OpenAPI/golden harnesses; these outputs must match the new B0 baseline exactly unless a separately approved behavior difference is documented. Confirm that no arbitrary URL or raw SQL reaches the adapter from tool arguments.
+- **Risk:** Medium/High. Interface placement and error translation affect the central execution seam; an overly broad port can leak infrastructure details or create a generic remote-call primitive.
+- **Rollback:** Revert only the B1.5 commit, preserving B0's generic names and post-pivot baselines. Do not revert or rewrite B0 artifacts as part of rolling back the adapter abstraction.
+
+### Ordering and relationship to earlier batches
+
+1. **B0 first:** the domain contract and fixtures must be generic before the executor interface is designed around them.
+2. **B1.5 second:** introduce the backend-neutral seam and preserve the resource-binding invariant against the actual adapter target.
+3. **Reconcile later Phase 4 batches after B0/B1.5:** earlier B1-B10 scopes refer in places to financial fixtures, the concrete executor, and pre-pivot goldens. Do not execute those batches verbatim after this pivot; revise their affected file scopes, test names/fixtures, verification baselines, and dependencies in a later plan update or explicit approval.
+4. **No live HTTP integrations yet:** actual external-provider adapters require a separate approved batch with provider credentials, target/host allow-listing, TLS/timeouts, response-size and schema limits, failure/redaction policy, and tests. The tool/model must never select an arbitrary URL. This is a security boundary, not just an implementation detail.
+
+### Explicitly not included in this pivot
+
+- Do not update the template or any other implementation file in this planning turn; the requested UI conversion belongs to B0 and no code is authorized yet.
+- Do not build the external website chatbot or add a frontend chat experience.
+- Do not add Stripe, Zendesk, or other live HTTP integrations in B1.5.
+- Do not introduce a generic “fetch URL” tool or allow arbitrary SQL/table names.
+- Do not change JWT identity issuance, SEC-01, or CFG-01 in B0/B1.5; their approval gates remain deferred.
+- Do not change endpoint paths or request/response structures under cover of domain renaming.
+- Do not change audit concurrency, denial-audit behavior, or other previously planned batches merely because the executor interface is being revised.

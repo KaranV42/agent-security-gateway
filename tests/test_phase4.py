@@ -20,60 +20,56 @@ def make_gateway():
         broker = CredentialBroker(asg_service_secret=TEST_SECRET)
         executor = ControlledToolExecutor(connection, broker)
         registry = ToolRegistry()
-        registry.register("read_market_data", ToolSchema(
-            required_args=frozenset({"table_name"}), resource_arg="table_name",
-            allowed_resources=frozenset({"market_data", "client_pii"})
-        ))
-        registry.register("read_client_pii", ToolSchema(
-            required_args=frozenset({"table_name"}), resource_arg="table_name",
-            allowed_resources=frozenset({"market_data", "client_pii"})
+        registry.register("read_data", ToolSchema(
+            required_args=frozenset({"resource_id"}), resource_arg="resource_id",
+            allowed_resources=frozenset({"public_records", "restricted_records"})
         ))
         policy = DeclarativePolicyEngine()
-        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
-        policy.add_rule(PolicyRule(principal_id="wealth_advisor", action="read", resource_id="client_pii", effect=Effect.ALLOW, reason="Allow"))
-        policy.add_rule(PolicyRule(principal_id="client_portal", action="read", resource_id="market_data", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="restricted_records", effect=Effect.ALLOW, reason="Allow"))
+        policy.add_rule(PolicyRule(principal_id="analyst", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Allow"))
         
         return ASGGateway(executor, registry, principal_id, policy, _DummyAuditLogger(), broker, TEST_SECRET), connection
     return _factory
 
-def test_advisor_can_read_market_data(make_gateway):
-    gateway, conn = make_gateway("wealth_advisor")
+def test_admin_can_read_public_records(make_gateway):
+    gateway, conn = make_gateway("admin")
     try:
-        result = gateway.execute_tool("read_market_data", {"table_name": "market_data"})
-        assert result[0]["symbol"] == "AAPL"
+        result = gateway.execute_tool("read_data", {"resource_id": "public_records"})
+        assert result[0]["record_id"] == "public-001"
     finally: conn.close()
 
-def test_advisor_can_read_client_pii(make_gateway):
-    gateway, conn = make_gateway("wealth_advisor")
+def test_admin_can_read_restricted_records(make_gateway):
+    gateway, conn = make_gateway("admin")
     try:
-        result = gateway.execute_tool("read_client_pii", {"table_name": "client_pii"})
-        assert result[0]["client_id"] == "C-9901"
+        result = gateway.execute_tool("read_data", {"resource_id": "restricted_records"})
+        assert result[0]["record_id"] == "restricted-001"
     finally: conn.close()
 
-def test_portal_can_read_market_data(make_gateway):
-    gateway, conn = make_gateway("client_portal")
+def test_analyst_can_read_public_records(make_gateway):
+    gateway, conn = make_gateway("analyst")
     try:
-        result = gateway.execute_tool("read_market_data", {"table_name": "market_data"})
-        assert result[0]["symbol"] == "AAPL"
+        result = gateway.execute_tool("read_data", {"resource_id": "public_records"})
+        assert result[0]["record_id"] == "public-001"
     finally: conn.close()
 
-def test_portal_cannot_read_client_pii(make_gateway):
-    gateway, conn = make_gateway("client_portal")
+def test_analyst_cannot_read_restricted_records(make_gateway):
+    gateway, conn = make_gateway("analyst")
     try:
         with pytest.raises(AuthorizationError, match="No matching policy"):
-            gateway.execute_tool("read_client_pii", {"table_name": "client_pii"})
+            gateway.execute_tool("read_data", {"resource_id": "restricted_records"})
     finally: conn.close()
 
 def test_unknown_user_denied_by_default(make_gateway):
     gateway, conn = make_gateway("unknown_user")
     try:
         with pytest.raises(AuthorizationError, match="No matching policy"):
-            gateway.execute_tool("read_market_data", {"table_name": "market_data"})
+            gateway.execute_tool("read_data", {"resource_id": "public_records"})
     finally: conn.close()
 
 def test_agent_cannot_spoof_principal(make_gateway):
-    gateway, conn = make_gateway("client_portal")
+    gateway, conn = make_gateway("analyst")
     try:
         with pytest.raises(ToolValidationError, match="Unexpected arguments"):
-            gateway.execute_tool("read_client_pii", {"table_name": "client_pii", "principal_id": "wealth_advisor"})
+            gateway.execute_tool("read_data", {"resource_id": "restricted_records", "principal_id": "admin"})
     finally: conn.close()

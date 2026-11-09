@@ -16,8 +16,8 @@ if __name__ == "__main__":
         AuditRecord(
             request_id=f"request-{index}",
             principal_id="golden-principal",
-            tool_name="read_market_data",
-            resource_id="market_data",
+            tool_name="read_data",
+            resource_id="public_records",
             phase=AuditPhase.AUTHORIZATION,
             outcome="ALLOW",
             reason=f"fixed audit record {index}",

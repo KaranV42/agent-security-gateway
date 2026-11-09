@@ -30,7 +30,7 @@ class ASGGateway:
 
     def execute_tool(self, tool_name: str, args: dict) -> list[dict]:
         request_id = str(uuid.uuid4())
-        resource_id = args.get("table_name", "")
+        resource_id = args.get("resource_id", "")
 
         # 1. Structural Validation
         try:

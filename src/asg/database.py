@@ -5,20 +5,26 @@ def create_mock_database() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     
     connection.execute("""
-        CREATE TABLE market_data (
-            symbol TEXT PRIMARY KEY,
-            price REAL NOT NULL,
-            volume INTEGER NOT NULL
+        CREATE TABLE public_records (
+            record_id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            content TEXT NOT NULL
         )
     """)
     connection.execute("""
-        CREATE TABLE client_pii (
-            client_id TEXT PRIMARY KEY,
-            ssn TEXT NOT NULL,
-            net_worth REAL NOT NULL
+        CREATE TABLE restricted_records (
+            record_id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            content TEXT NOT NULL
         )
     """)
-    connection.execute("INSERT INTO market_data VALUES (?, ?, ?)", ("AAPL", 150.25, 1000000))
-    connection.execute("INSERT INTO client_pii VALUES (?, ?, ?)", ("C-9901", "123-45-6789", 2500000.00))
+    connection.execute(
+        "INSERT INTO public_records VALUES (?, ?, ?)",
+        ("public-001", "Example public record", "Synthetic public content"),
+    )
+    connection.execute(
+        "INSERT INTO restricted_records VALUES (?, ?, ?)",
+        ("restricted-001", "Example restricted record", "Synthetic restricted content"),
+    )
     connection.commit()
     return connection

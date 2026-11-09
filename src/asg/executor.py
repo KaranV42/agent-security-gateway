@@ -6,8 +6,8 @@ class ExecutorInputError(ValueError):
 
 class ControlledToolExecutor:
     _TABLES = {
-        "read_market_data": "market_data",
-        "read_client_pii": "client_pii",
+        "public_records": "public_records",
+        "restricted_records": "restricted_records",
     }
 
     def __init__(self, connection: sqlite3.Connection, broker: CredentialBroker):
@@ -15,25 +15,23 @@ class ControlledToolExecutor:
         self.__broker = broker
 
     def execute_tool(self, tool_name: str, args: dict, session_token: str) -> list[dict]:
-        if tool_name not in self._TABLES:
+        if tool_name != "read_data":
             raise ExecutorInputError("Unsupported tool")
         
         # 1. Validate Service-to-Service Session
-        table_name = args.get("table_name")
-        table = self._TABLES.get(tool_name)
+        resource_id = args.get("resource_id")
+        if not self.__broker.validate_session(session_token, resource_id):
+            raise ExecutorInputError("Invalid or expired session token")
+
+        if not isinstance(args, dict) or set(args) != {"resource_id"}:
+            raise ExecutorInputError("Invalid arguments")
+
+        # 2. Resolve the requested resource through the fixed table allow-list.
+        table = self._TABLES.get(resource_id)
         if table is None:
             raise ExecutorInputError("Unsupported table")
 
-        if not self.__broker.validate_session(session_token, table):
-            raise ExecutorInputError("Invalid or expired session token")
-
-        if not isinstance(args, dict) or set(args) != {"table_name"}:
-            raise ExecutorInputError("Invalid arguments")
-
-        if table_name != table:
-            raise ExecutorInputError("Invalid arguments")
-
-        # 3. Execute only the table bound to the validated tool and session.
+        # 3. Execute safely (parameterized queries prevent SQL injection at the DB level)
         rows = self.__connection.execute(
             f'SELECT * FROM "{table}" ORDER BY 1'
         ).fetchall()
