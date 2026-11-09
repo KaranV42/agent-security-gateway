@@ -1,0 +1,20 @@
+{
+  "expired": {
+    "valid": false
+  },
+  "valid": {
+    "claims": {
+      "aud": "https://api.asg-prototype.local",
+      "exp": 4102444800,
+      "iss": "https://idp.asg-prototype.local",
+      "sub": "golden-principal"
+    },
+    "valid": true
+  },
+  "wrong_issuer": {
+    "valid": false
+  },
+  "wrong_signature": {
+    "valid": false
+  }
+}

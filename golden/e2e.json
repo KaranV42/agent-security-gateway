@@ -1,0 +1,26 @@
+{
+  "authorized": {
+    "json": {
+      "request_id": "00000000-0000-0000-0000-000000000001",
+      "result": [
+        {
+          "price": 150.25,
+          "symbol": "AAPL",
+          "volume": 1000000
+        }
+      ],
+      "status": "SUCCESS"
+    },
+    "status_code": 200
+  },
+  "unauthorized": {
+    "json": {
+      "detail": {
+        "error": "Authorization failed: No matching policy rule found; access denied by default.",
+        "request_id": "00000000-0000-0000-0000-000000000004",
+        "status": "AUTHORIZATION_DENIED"
+      }
+    },
+    "status_code": 403
+  }
+}

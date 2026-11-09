@@ -1,0 +1,14 @@
+{
+  "matching_allow": {
+    "effect": "ALLOW",
+    "reason": "Matching allow rule"
+  },
+  "nonmatching_allow": {
+    "effect": "DENY",
+    "reason": "No matching policy rule found; access denied by default."
+  },
+  "zero_rules": {
+    "effect": "DENY",
+    "reason": "No matching policy rule found; access denied by default."
+  }
+}
