@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from asg.api import create_app
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
-from asg.executors import ProfileToolExecutor
+from asg.executors import HttpExecutor
 from asg.execution import ToolExecutorRouter
 from asg.registry import ToolRegistry, ToolSchema
 from asg.policy import DeclarativePolicyEngine, PolicyRule
@@ -24,7 +24,7 @@ broker = CredentialBroker(asg_service_secret=ASG_SERVICE_SECRET)
 db_connection = create_mock_database()
 executor = ToolExecutorRouter({
     "read_data": ControlledToolExecutor(db_connection, broker),
-    "get_my_profile": ProfileToolExecutor(),
+    "get_my_profile": HttpExecutor(),
 })
 
 # --- 2. Generic Data Registry ---

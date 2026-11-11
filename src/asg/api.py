@@ -1,5 +1,5 @@
 import uuid
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 from typing import Any
 
@@ -39,9 +39,17 @@ def create_app(
     @app.post("/api/v1/execute")
     async def execute_tool(
         req: ToolCallRequest,
-        principal_id: str = Depends(get_current_principal)
+        request: Request,
+        principal_id: str = Depends(get_current_principal),
     ):
         api_request_id = str(uuid.uuid4())
+
+        auth_header = request.headers.get("authorization", "")
+        user_token = (
+            auth_header.split(" ", 1)[1].strip()
+            if auth_header.lower().startswith("bearer ")
+            else ""
+        )
 
         # Instantiate gateway with the verified principal, broker, and service secret
         gateway = ASGGateway(
@@ -51,7 +59,8 @@ def create_app(
             policy=policy,
             audit_logger=audit_logger,
             broker=broker,
-            asg_service_secret=asg_service_secret
+            asg_service_secret=asg_service_secret,
+            user_token=user_token,
         )
 
         try:

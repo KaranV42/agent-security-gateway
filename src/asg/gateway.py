@@ -18,7 +18,9 @@ class ASGGateway:
         policy: DeclarativePolicyEngine,
         audit_logger: AuditLogger,
         broker: CredentialBroker,
-        asg_service_secret: str
+        asg_service_secret: str,
+        user_token: str = "",
+        token: str | None = None,
     ) -> None:
         self.__executor = executor
         self.__registry = registry
@@ -27,6 +29,7 @@ class ASGGateway:
         self.__audit_logger = audit_logger
         self.__broker = broker
         self.__asg_secret = asg_service_secret
+        self.__user_token = token if token is not None else user_token
 
     def execute_tool(self, tool_name: str, args: dict) -> list[dict]:
         request_id = str(uuid.uuid4())
@@ -69,6 +72,7 @@ class ASGGateway:
                     arguments=args,
                     session_token=session_token,
                     principal_id=self.__principal_id,
+                    user_token=self.__user_token,
                 )
             )
         except Exception as e:
