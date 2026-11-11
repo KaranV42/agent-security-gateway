@@ -1,7 +1,5 @@
 import pytest
-import datetime
 import os
-import jwt
 from pathlib import Path
 from fastapi.testclient import TestClient
 
@@ -12,7 +10,6 @@ from asg.registry import ToolRegistry, ToolSchema
 from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.models import Effect
 from asg.audit_store import PersistentAuditLogger
-from asg.idp import idp
 from asg.broker import CredentialBroker
 
 TEST_DB_PATH = "test_audit.db"
@@ -66,9 +63,9 @@ def test_unauthorized_request_returns_401(client):
     })
     assert response.status_code == 401
 
-def test_successful_execution_returns_200(client):
+def test_successful_execution_returns_200(client, firebase_token):
     test_client, logger = client
-    token = idp.generate_token("admin")
+    token = firebase_token(subject="admin")
     
     response = test_client.post("/api/v1/execute", 
         json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},
@@ -80,9 +77,9 @@ def test_successful_execution_returns_200(client):
     records = logger.get_recent_records()
     assert len(records) >= 2
 
-def test_authorization_denial_returns_403(client):
+def test_authorization_denial_returns_403(client, firebase_token):
     test_client, logger = client
-    token = idp.generate_token("analyst")
+    token = firebase_token(subject="analyst")
     
     # Analysts are not allowed to read restricted records.
     response = test_client.post("/api/v1/execute", 
@@ -95,24 +92,9 @@ def test_authorization_denial_returns_403(client):
     assert len(records) >= 1
     assert records[0]["outcome"] == "DENY"
 
-def test_invalid_issuer_returns_401(client):
-    from cryptography.hazmat.primitives import serialization
-    
+def test_invalid_issuer_returns_401(client, firebase_token):
     test_client, _ = client
-    
-    private_pem = idp._private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    )
-    
-    bad_payload = {
-        "sub": "admin",
-        "iss": "https://malicious-idp.local",
-        "aud": "https://api.asg-prototype.local",
-        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
-    }
-    bad_token = jwt.encode(bad_payload, private_pem, algorithm="RS256", headers={"kid": idp._kid})
+    bad_token = firebase_token(issuer="https://malicious-idp.local")
     
     response = test_client.post("/api/v1/execute", 
         json={"tool_name": "read_data", "arguments": {"resource_id": "public_records"}},

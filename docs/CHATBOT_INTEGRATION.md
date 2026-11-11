@@ -17,17 +17,21 @@ The current ASG has a backend-neutral `ToolExecutor` port, a SQLite implementati
 
 The browser and LLM are untrusted input sources. Neither is an authorization authority.
 
+## Initial tool: `get_my_profile`
+
+The first tool exposed to the chatbot is `get_my_profile`. Its argument object is empty: it takes zero arguments and must reject any supplied fields, including `uid`, `user_id`, or tenant identifiers. The profile UID comes exclusively from the `sub` claim of the Firebase ID token after signature, issuer, audience, and expiry validation. Neither the prompt nor a request body may select or override that UID.
+
 ## 1. External identity provider and JWKS validation
 
 ### Trust configuration
 
-Replace local signing and verification based on `idp.py` with an external token validator configured per environment. Configure the OIDC issuer and JWKS URI out of band (for example, from trusted Auth0 or Clerk tenant configuration); never derive the JWKS URL from a token claim, request parameter, user prompt, or arbitrary `jku`/`x5u` header. Require HTTPS and validate TLS certificates. Treat JWKS retrieval as a fixed-host outbound dependency with its own egress restrictions.
+Replace local signing and verification based on `idp.py` with Firebase Authentication ID token validation. Require `FIREBASE_PROJECT_ID` from the process environment and fail startup if it is missing or empty. Derive the exact issuer as `https://securetoken.google.com/{FIREBASE_PROJECT_ID}` and the audience as `{FIREBASE_PROJECT_ID}`. Fetch signing certificates only from `https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com`; this endpoint returns a map of key IDs to PEM-encoded x509 certificates, not a JSON Web Key Set. Parse each certificate and verify the token using its public key. Never derive a URL from a token claim, request parameter, user prompt, or `jku`/`x5u` header. Require HTTPS, validate TLS certificates, bound timeouts, and treat retrieval as a fixed-host outbound dependency with its own egress restrictions.
 
 The validator should:
 
 - Verify signature using a strict algorithm allowlist; reject `none`, unexpected algorithms, malformed keys, and unsupported key types.
-- Select a key only by the token's `kid` from the configured issuer's JWKS; reject unknown keys and refresh the JWKS once through a bounded, rate-limited path to support key rotation.
-- Validate exact configured issuer, the ASG API audience, expiry, not-before when present, and required subject/identity claims. Apply bounded clock skew.
+- Select a certificate only by the token's `kid`; reject unknown keys and refresh certificates through a bounded, rate-limited path to support key rotation.
+- Validate the exact Firebase issuer, project-ID audience, expiry, not-before when present, and required subject claim. Apply bounded clock skew.
 - Cache successfully retrieved keys with bounded freshness. On refresh failure, use only still-eligible cached keys for a limited, explicit stale window; never accept an unverified token or fetch an arbitrary alternate URL as a fallback.
 - Bound JWKS response size, parsing time, redirects, and connection/read timeouts. Avoid unbounded refreshes on attacker-selected `kid` values.
 - Map the verified, issuer-qualified subject (`iss` + `sub`) to an internal principal; do not assume email or display name is a stable identifier. Validate tenant/organization claims against server-side configuration if multi-tenant operation is enabled.
