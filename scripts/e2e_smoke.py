@@ -16,6 +16,9 @@ from asg.audit_store import PersistentAuditLogger
 from asg.broker import CredentialBroker
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
+from asg.executors import ProfileToolExecutor
+from asg.execution import ToolExecutorRouter
+from asg.auth import get_current_principal
 from asg.idp import idp
 from asg.models import Effect
 from asg.policy import DeclarativePolicyEngine, PolicyRule
@@ -32,7 +35,10 @@ if __name__ == "__main__":
     service_secret = "golden-e2e-service-secret"
     connection = create_mock_database()
     broker = CredentialBroker(asg_service_secret=service_secret)
-    executor = ControlledToolExecutor(connection, broker)
+    executor = ToolExecutorRouter({
+        "read_data": ControlledToolExecutor(connection, broker),
+        "get_my_profile": ProfileToolExecutor(),
+    })
 
     registry = ToolRegistry()
     registry.register(
@@ -44,9 +50,23 @@ if __name__ == "__main__":
             allowed_resources=frozenset({"public_records", "restricted_records"}),
         ),
     )
+    registry.register(
+        "get_my_profile",
+        ToolSchema(
+            description="Returns the authenticated user's profile.",
+            required_args=frozenset(),
+        ),
+    )
 
     policy = DeclarativePolicyEngine(
         [
+            PolicyRule(
+                principal_id=None,
+                action="read",
+                resource_id="get_my_profile",
+                effect=Effect.ALLOW,
+                reason="Authenticated users can read their own profile",
+            ),
             PolicyRule(
                 principal_id="admin",
                 action="read",
@@ -69,8 +89,11 @@ if __name__ == "__main__":
             broker,
             service_secret,
         )
+        principal = {"id": "admin"}
+        app.dependency_overrides[get_current_principal] = lambda: principal["id"]
         with patch("asg.api.uuid.uuid4", side_effect=mock_uuid4):
             with TestClient(app) as client:
+                tools = client.get("/api/v1/tools")
                 authorized = client.post(
                     "/api/v1/execute",
                     json={
@@ -81,6 +104,14 @@ if __name__ == "__main__":
                         "Authorization": f"Bearer {idp.generate_token('admin')}"
                     },
                 )
+                profile = client.post(
+                    "/api/v1/execute",
+                    json={
+                        "tool_name": "get_my_profile",
+                        "arguments": {},
+                    },
+                )
+                principal["id"] = "analyst"
                 unauthorized = client.post(
                     "/api/v1/execute",
                     json={
@@ -94,9 +125,14 @@ if __name__ == "__main__":
 
     connection.close()
     result = {
+        "tools": tools.json(),
         "authorized": {
             "status_code": authorized.status_code,
             "json": authorized.json(),
+        },
+        "profile": {
+            "status_code": profile.status_code,
+            "json": profile.json(),
         },
         "unauthorized": {
             "status_code": unauthorized.status_code,

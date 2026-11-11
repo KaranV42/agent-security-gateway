@@ -16,6 +16,7 @@ class ToolExecutionRequest:
     resource_id: str
     arguments: Mapping[str, object]
     session_token: str
+    principal_id: str
 
 
 @dataclass(frozen=True)
@@ -26,3 +27,16 @@ class ToolExecutionResult:
 class ToolExecutor(Protocol):
     def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         """Execute one server-configured tool operation."""
+
+
+class ToolExecutorRouter:
+    def __init__(self, executors: Mapping[str, ToolExecutor]) -> None:
+        self._executors = dict(executors)
+
+    def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
+        executor = self._executors.get(request.tool_name)
+        if executor is None:
+            raise ExecutorInputError(
+                f"No executor configured for tool '{request.tool_name}'"
+            )
+        return executor.execute(request)

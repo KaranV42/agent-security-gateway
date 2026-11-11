@@ -13,11 +13,62 @@
     },
     "status_code": 200
   },
+  "profile": {
+    "json": {
+      "request_id": "00000000-0000-0000-0000-000000000004",
+      "result": [
+        {
+          "display_name": "Test User",
+          "email": "test@example.com",
+          "uid": "admin"
+        }
+      ],
+      "status": "SUCCESS"
+    },
+    "status_code": 200
+  },
+  "tools": [
+    {
+      "function": {
+        "description": "Reads records from an authorized resource.",
+        "name": "read_data",
+        "parameters": {
+          "properties": {
+            "resource_id": {
+              "description": "Target resource for the operation.",
+              "enum": [
+                "public_records",
+                "restricted_records"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "resource_id"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Returns the authenticated user's profile.",
+        "name": "get_my_profile",
+        "parameters": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ],
   "unauthorized": {
     "json": {
       "detail": {
         "error": "Authorization failed: No matching policy rule found; access denied by default.",
-        "request_id": "00000000-0000-0000-0000-000000000004",
+        "request_id": "00000000-0000-0000-0000-000000000007",
         "status": "AUTHORIZATION_DENIED"
       }
     },

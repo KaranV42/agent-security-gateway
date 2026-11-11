@@ -66,6 +66,7 @@ class ControlledToolExecutor:
                 resource_id=resource_id,
                 arguments=args,
                 session_token=session_token,
+                principal_id="",
             )
         )
         return [dict(record) for record in result.records]

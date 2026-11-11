@@ -6,6 +6,8 @@ from fastapi.responses import HTMLResponse
 from asg.api import create_app
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
+from asg.executors import ProfileToolExecutor
+from asg.execution import ToolExecutorRouter
 from asg.registry import ToolRegistry, ToolSchema
 from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.audit_store import PersistentAuditLogger
@@ -20,7 +22,10 @@ ASG_SERVICE_SECRET = "super-secret-machine-identity"
 broker = CredentialBroker(asg_service_secret=ASG_SERVICE_SECRET)
 
 db_connection = create_mock_database()
-executor = ControlledToolExecutor(db_connection, broker)
+executor = ToolExecutorRouter({
+    "read_data": ControlledToolExecutor(db_connection, broker),
+    "get_my_profile": ProfileToolExecutor(),
+})
 
 # --- 2. Generic Data Registry ---
 registry = ToolRegistry()
@@ -29,6 +34,10 @@ registry.register("read_data", ToolSchema(
     required_args=frozenset({"resource_id"}),
     resource_arg="resource_id",
     allowed_resources=frozenset({"public_records", "restricted_records"})
+))
+registry.register("get_my_profile", ToolSchema(
+    description="Returns the authenticated user's profile.",
+    required_args=frozenset(),
 ))
 
 # --- 3. Declarative Policy ---
@@ -44,6 +53,10 @@ policy.add_rule(PolicyRule(
 policy.add_rule(PolicyRule(
     principal_id="analyst", action="read", resource_id="public_records",
     effect=Effect.ALLOW, reason="Analysts can read public records."
+))
+policy.add_rule(PolicyRule(
+    principal_id=None, action="read", resource_id="get_my_profile",
+    effect=Effect.ALLOW, reason="Authenticated users can read their own profile."
 ))
 # Note: analyst access to restricted records is intentionally omitted (default-deny).
 

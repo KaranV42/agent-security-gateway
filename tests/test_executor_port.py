@@ -117,6 +117,7 @@ def test_sqlite_adapter_binds_broker_scope_to_configured_operation():
         resource_id="restricted_records",
         arguments={"resource_id": "restricted_records"},
         session_token=token,
+        principal_id="admin",
     )
     try:
         with pytest.raises(

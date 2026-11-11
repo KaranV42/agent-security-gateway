@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from asg.api import create_app
 from asg.database import create_mock_database
 from asg.executor import ControlledToolExecutor
+from asg.executors import ProfileToolExecutor
+from asg.execution import ToolExecutorRouter
 from asg.registry import ToolRegistry, ToolSchema
 from asg.policy import DeclarativePolicyEngine, PolicyRule
 from asg.models import Effect
@@ -22,18 +24,26 @@ def client():
     
     connection = create_mock_database()
     broker = CredentialBroker(asg_service_secret=ASG_SERVICE_SECRET)
-    executor = ControlledToolExecutor(connection, broker)
+    executor = ToolExecutorRouter({
+        "read_data": ControlledToolExecutor(connection, broker),
+        "get_my_profile": ProfileToolExecutor(),
+    })
     
     registry = ToolRegistry()
     registry.register("read_data", ToolSchema(
         description="Reads records from an authorized resource.", required_args=frozenset({"resource_id"}),
         resource_arg="resource_id", allowed_resources=frozenset({"public_records", "restricted_records"})
     ))
+    registry.register("get_my_profile", ToolSchema(
+        description="Returns the authenticated user's profile.",
+        required_args=frozenset(),
+    ))
     
     policy = DeclarativePolicyEngine()
     policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Administrators can read public records."))
     policy.add_rule(PolicyRule(principal_id="admin", action="read", resource_id="restricted_records", effect=Effect.ALLOW, reason="Administrators can read restricted records."))
     policy.add_rule(PolicyRule(principal_id="analyst", action="read", resource_id="public_records", effect=Effect.ALLOW, reason="Analysts can read public records."))
+    policy.add_rule(PolicyRule(principal_id=None, action="read", resource_id="get_my_profile", effect=Effect.ALLOW, reason="Authenticated users can read their own profile."))
     
     logger = PersistentAuditLogger(db_path=TEST_DB_PATH)
     
@@ -54,7 +64,40 @@ def test_get_tools_returns_openai_schema(client):
     assert response.status_code == 200
     data = response.json()
     tool_names = {t["function"]["name"] for t in data}
-    assert tool_names == {"read_data"}
+    assert tool_names == {"read_data", "get_my_profile"}
+
+def test_get_my_profile_returns_authenticated_user(client, firebase_token):
+    test_client, _ = client
+    token = firebase_token(subject="firebase-user-123")
+
+    response = test_client.post(
+        "/api/v1/execute",
+        json={"tool_name": "get_my_profile", "arguments": {}},
+    headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["result"] == [{
+        "display_name": "Test User",
+        "email": "test@example.com",
+        "uid": "firebase-user-123",
+    }]
+
+def test_get_my_profile_rejects_arguments(client, firebase_token):
+    test_client, _ = client
+    token = firebase_token(subject="firebase-user-123")
+
+    response = test_client.post(
+        "/api/v1/execute",
+        json={
+            "tool_name": "get_my_profile",
+            "arguments": {"uid": "spoofed-user"},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400, response.json()
+    assert response.json()["detail"]["status"] == "VALIDATION_DENIED"
 
 def test_unauthorized_request_returns_401(client):
     test_client, _ = client

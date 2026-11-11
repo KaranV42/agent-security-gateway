@@ -30,7 +30,7 @@ class ASGGateway:
 
     def execute_tool(self, tool_name: str, args: dict) -> list[dict]:
         request_id = str(uuid.uuid4())
-        resource_id = args.get("resource_id", "")
+        resource_id = args.get("resource_id", tool_name)
 
         # 1. Structural Validation
         try:
@@ -68,6 +68,7 @@ class ASGGateway:
                     resource_id=resource_id,
                     arguments=args,
                     session_token=session_token,
+                    principal_id=self.__principal_id,
                 )
             )
         except Exception as e:
