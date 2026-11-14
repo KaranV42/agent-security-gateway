@@ -22,9 +22,11 @@ ASG_SERVICE_SECRET = "super-secret-machine-identity"
 broker = CredentialBroker(asg_service_secret=ASG_SERVICE_SECRET)
 
 db_connection = create_mock_database()
+http_executor = HttpExecutor()
 executor = ToolExecutorRouter({
     "read_data": ControlledToolExecutor(db_connection, broker),
-    "get_my_profile": HttpExecutor(),
+    "get_my_profile": http_executor,
+    "get_conversation": http_executor,
 })
 
 # --- 2. Generic Data Registry ---
@@ -38,6 +40,11 @@ registry.register("read_data", ToolSchema(
 registry.register("get_my_profile", ToolSchema(
     description="Returns the authenticated user's profile.",
     required_args=frozenset(),
+))
+registry.register("get_conversation", ToolSchema(
+    description="Returns a conversation owned by the authenticated user.",
+    required_args=frozenset({"conversation_id"}),
+    authorization_resource="conversation",
 ))
 
 # --- 3. Declarative Policy ---
@@ -57,6 +64,10 @@ policy.add_rule(PolicyRule(
 policy.add_rule(PolicyRule(
     principal_id=None, action="read", resource_id="get_my_profile",
     effect=Effect.ALLOW, reason="Authenticated users can read their own profile."
+))
+policy.add_rule(PolicyRule(
+    principal_id=None, action="read", resource_id="conversation",
+    effect=Effect.ALLOW, reason="Authenticated users can request their conversations."
 ))
 # Note: analyst access to restricted records is intentionally omitted (default-deny).
 

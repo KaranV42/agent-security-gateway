@@ -365,3 +365,141 @@ def test_http_executor_via_api_client_backend_500_maps_to_500(firebase_token):
     assert response.json()["detail"]["status"] == "EXECUTION_FAILURE"
     assert "Backend returned HTTP 500" in response.json()["detail"]["error"]
 
+
+def test_http_executor_builds_encoded_conversation_url():
+    recorded_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded_requests.append(request)
+        return httpx.Response(200, json={"conversation_id": "thread/a?b#c"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    executor = HttpExecutor(
+        backend_url="https://api.internal.example.com",
+        client=client,
+    )
+    request = _make_request(
+        tool_name="get_conversation",
+        resource_id="conversation",
+        arguments={"conversation_id": "thread/a?b#c"},
+    )
+
+    result = executor.execute(request)
+
+    assert str(recorded_requests[0].url) == (
+        "https://api.internal.example.com/v1/conversations/"
+        "thread%2Fa%3Fb%23c"
+    )
+    assert result.records[0] == {"conversation_id": "thread/a?b#c"}
+
+
+def _conversation_api_client(http_client: httpx.Client) -> TestClient:
+    executor = HttpExecutor(client=http_client)
+    registry = ToolRegistry()
+    registry.register(
+        "get_conversation",
+        ToolSchema(
+            description="Returns a conversation",
+            required_args=frozenset({"conversation_id"}),
+            authorization_resource="conversation",
+        ),
+    )
+    policy = DeclarativePolicyEngine([
+        PolicyRule(
+            principal_id=None,
+            action="read",
+            resource_id="conversation",
+            effect=Effect.ALLOW,
+            reason="Allow conversation lookup",
+        )
+    ])
+    broker = CredentialBroker(asg_service_secret=TEST_SECRET)
+    app = create_app(
+        executor,
+        registry,
+        policy,
+        _DummyAuditLogger(),
+        broker,
+        TEST_SECRET,
+    )
+    return TestClient(app)
+
+
+def test_get_conversation_missing_id_is_rejected_by_registry(firebase_token):
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={})
+        )
+    )
+    client = _conversation_api_client(http_client)
+    token = firebase_token(subject="conversation-user")
+
+    response = client.post(
+        "/api/v1/execute",
+        json={"tool_name": "get_conversation", "arguments": {}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["status"] == "VALIDATION_DENIED"
+
+
+def test_get_conversation_passes_argument_through_gateway(firebase_token):
+    recorded_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded_requests.append(request)
+        return httpx.Response(
+            200,
+            json={"conversation_id": "conversation-123"},
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = _conversation_api_client(http_client)
+    token = firebase_token(subject="conversation-user")
+
+    response = client.post(
+        "/api/v1/execute",
+        json={
+            "tool_name": "get_conversation",
+            "arguments": {"conversation_id": "conversation-123"},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["result"] == [
+        {"conversation_id": "conversation-123"}
+    ]
+    assert str(recorded_requests[0].url) == (
+        "https://api.internal.example.com/v1/conversations/conversation-123"
+    )
+    outbound_authorization = recorded_requests[0].headers["authorization"]
+    assert outbound_authorization.startswith("Bearer ")
+    assert outbound_authorization.endswith(token)
+    assert outbound_authorization == f"Bearer {token}"
+
+
+def test_get_conversation_rejects_unknown_arguments(firebase_token):
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={})
+        )
+    )
+    client = _conversation_api_client(http_client)
+    token = firebase_token(subject="conversation-user")
+
+    response = client.post(
+        "/api/v1/execute",
+        json={
+            "tool_name": "get_conversation",
+            "arguments": {
+                "conversation_id": "conversation-123",
+                "owner_uid": "spoofed-user",
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["status"] == "VALIDATION_DENIED"
