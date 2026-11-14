@@ -38,6 +38,9 @@ class ASGGateway:
         # 1. Structural Validation
         try:
             self.__registry.validate(tool_name, args)
+            resource_id = self.__registry.get_authorization_resource(
+                tool_name, args
+            )
         except ToolValidationError as e:
             self._log_audit(request_id, tool_name, resource_id, AuditPhase.AUTHORIZATION, "DENY", f"Validation failed: {e}")
             raise

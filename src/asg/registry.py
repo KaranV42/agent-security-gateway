@@ -12,6 +12,7 @@ class ToolSchema:
     required_args: FrozenSet[str] = field(default_factory=frozenset)
     resource_arg: Optional[str] = None
     allowed_resources: Optional[FrozenSet[str]] = None
+    authorization_resource: Optional[str] = None
 
 class ToolRegistry:
     """Maintains the authoritative list of permitted tools and their schemas."""
@@ -47,6 +48,21 @@ class ToolRegistry:
                 raise ToolValidationError(
                     f"Resource '{resource_value}' is not permitted for tool '{tool_name}'."
                 )
+
+    def get_authorization_resource(self, tool_name: str, args: dict) -> str:
+        schema = self._schemas.get(tool_name)
+        if schema is None:
+            raise ToolValidationError(f"Unknown tool: {tool_name}")
+        if schema.authorization_resource is not None:
+            return schema.authorization_resource
+        if schema.resource_arg is not None:
+            resource_id = args.get(schema.resource_arg)
+            if not isinstance(resource_id, str):
+                raise ToolValidationError(
+                    f"Resource argument '{schema.resource_arg}' must be a string."
+                )
+            return resource_id
+        return tool_name
 
     def get_openai_tools_schema(self) -> list[dict[str, Any]]:
         """Exports registered tools in OpenAI-compatible function calling format."""
